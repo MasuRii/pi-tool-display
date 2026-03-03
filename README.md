@@ -4,7 +4,7 @@ OpenCode-style tool rendering for the [Pi coding agent](https://github.com/mario
 
 `pi-tool-display` provides compact, expandable tool call/result rendering that keeps your terminal clean while preserving access to full details when needed.
 
-![Screenshot](assets/pi-tool-display.png)
+![Screenshot](https://raw.githubusercontent.com/MasuRii/pi-tool-display/main/assets/pi-tool-display.png)
 
 ## Features
 
