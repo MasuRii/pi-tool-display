@@ -38,6 +38,11 @@ import type {
   BuiltInToolOverrideName,
   ToolDisplayConfig,
 } from "./types.js";
+import {
+  countWriteContentLines,
+  getWriteContentSizeBytes,
+  shouldRenderWriteCallSummary,
+} from "./write-display-utils.js";
 
 interface BuiltInTools {
   read: ReturnType<typeof createReadTool>;
@@ -173,23 +178,6 @@ function countTextLines(value: unknown): number {
     return 0;
   }
   return splitLines(value).length;
-}
-
-function countWriteContentLines(value: unknown): number {
-  if (typeof value !== "string") {
-    return 0;
-  }
-
-  const normalized = value.replace(/\r/g, "");
-  const lines = normalized.split("\n");
-  if (lines.length > 0 && lines[lines.length - 1] === "") {
-    lines.pop();
-  }
-  return lines.length;
-}
-
-function getWriteContentSizeBytes(value: unknown): number {
-  return typeof value === "string" ? Buffer.byteLength(value, "utf8") : 0;
 }
 
 function formatLineCountSuffix(
@@ -937,10 +925,13 @@ export function registerToolDisplayOverrides(
       }
 
       const path = shortenPath(lastWritePath);
-      const suffix =
-        incomingContent !== undefined || lastWriteContent !== undefined
-          ? formatWriteCallSuffix(lastWriteLineCount, lastWriteSizeBytes, theme)
-          : "";
+      const hasContent = incomingContent !== undefined || lastWriteContent !== undefined;
+      const suffix = shouldRenderWriteCallSummary({
+        hasContent,
+        hasDetailedResultHeader: false,
+      })
+        ? formatWriteCallSuffix(lastWriteLineCount, lastWriteSizeBytes, theme)
+        : "";
       return new Text(
         `${theme.fg("toolTitle", theme.bold("write"))} ${theme.fg("accent", path || "...")}${suffix}`,
         0,

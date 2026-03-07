@@ -1,5 +1,10 @@
 import { Text, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
-import { formatSize, getLanguageFromPath, highlightCode, type EditToolDetails } from "@mariozechner/pi-coding-agent";
+import { getLanguageFromPath, highlightCode, type EditToolDetails } from "@mariozechner/pi-coding-agent";
+import {
+	buildCollapsedDiffHintText,
+	clampRenderedLineToWidth,
+	clampRenderedLinesToWidth,
+} from "./line-width-safety.js";
 import { pluralize, sanitizeAnsiForThemedOutput } from "./render-utils.js";
 import type { ToolDisplayConfig } from "./types.js";
 
@@ -102,6 +107,18 @@ const DELETION_TINT_TARGET: RgbColor = { r: 232, g: 95, b: 122 };
 const ANSI_BG_RESET = "\x1b[49m";
 const ANSI_SGR_PATTERN = /\x1b\[([0-9;]*)m/g;
 const STYLE_RESET_PARAMS = [39, 22, 23, 24, 25, 27, 28, 29, 59] as const;
+const DIFF_WIDTH_OPS = {
+	measure: visibleWidth,
+	truncate: (text: string, maxWidth: number): string => truncateToWidth(text, maxWidth, ""),
+};
+
+function clampDiffLineToWidth(text: string, width: number): string {
+	return stabilizeBackgroundResets(clampRenderedLineToWidth(text, width, DIFF_WIDTH_OPS));
+}
+
+function clampDiffLinesToWidth(lines: string[], width: number): string[] {
+	return clampRenderedLinesToWidth(lines, width, DIFF_WIDTH_OPS).map((line) => stabilizeBackgroundResets(line));
+}
 
 function normalizeCodeWhitespace(text: string): string {
 	return text.replace(/\t/g, "    ");
@@ -1480,18 +1497,19 @@ function renderDiffFrameLine(width: number, theme: DiffTheme): string {
 
 function applyLineLimit(
 	rows: RenderedRow[],
+	width: number,
 	expanded: boolean,
 	maxCollapsedLines: number,
 	totalHunks: number,
 	theme: DiffTheme,
 ): string[] {
 	if (expanded) {
-		return rows.map((row) => stabilizeBackgroundResets(row.text));
+		return rows.map((row) => clampDiffLineToWidth(row.text, width));
 	}
 
 	const limit = Math.max(1, maxCollapsedLines);
 	if (rows.length <= limit) {
-		return rows.map((row) => stabilizeBackgroundResets(row.text));
+		return rows.map((row) => clampDiffLineToWidth(row.text, width));
 	}
 
 	const shown = rows.slice(0, limit);
@@ -1502,16 +1520,18 @@ function applyLineLimit(
 			.filter((hunkIndex): hunkIndex is number => typeof hunkIndex === "number" && hunkIndex > 0),
 	);
 	const hiddenHunks = Math.max(0, totalHunks - visibleHunks.size);
-
-	const details = [`${remaining} more ${pluralize(remaining, "diff line")}`];
-	if (hiddenHunks > 0) {
-		details.push(`${hiddenHunks} more ${pluralize(hiddenHunks, "hunk")}`);
-	}
-	details.push("Ctrl+O to expand");
+	const hintText = buildCollapsedDiffHintText(
+		{
+			remainingLines: remaining,
+			hiddenHunks,
+		},
+		width,
+		DIFF_WIDTH_OPS,
+	);
 
 	return [
-		...shown.map((row) => stabilizeBackgroundResets(row.text)),
-		stabilizeBackgroundResets(theme.fg("muted", `… (${details.join(" • ")})`)),
+		...shown.map((row) => clampDiffLineToWidth(row.text, width)),
+		clampDiffLineToWidth(theme.fg("muted", hintText), width),
 	];
 }
 
@@ -1625,6 +1645,7 @@ export function renderEditDiffResult(
 				);
 			const bodyWithLimit = applyLineLimit(
 				bodyRows,
+				safeWidth,
 				options.expanded,
 				config.diffCollapsedLines,
 				parsed.stats.hunks,
@@ -1632,10 +1653,12 @@ export function renderEditDiffResult(
 			);
 			const frame = renderDiffFrameLine(safeWidth, theme);
 
-			cachedLines = (mode === "split"
-				? [...headerRows.map((row) => row.text), ...bodyWithLimit]
-				: [...headerRows.map((row) => row.text), frame, ...bodyWithLimit, frame])
-				.map((line) => stabilizeBackgroundResets(line));
+			cachedLines = clampDiffLinesToWidth(
+				mode === "split"
+					? [...headerRows.map((row) => row.text), ...bodyWithLimit]
+					: [...headerRows.map((row) => row.text), frame, ...bodyWithLimit, frame],
+				safeWidth,
+			);
 			cachedWidth = safeWidth;
 			cachedExpanded = options.expanded;
 			cachedMode = mode;
@@ -1664,21 +1687,13 @@ function splitWriteContentLines(content: string): string[] {
 }
 
 function renderWriteHeader(
-	lineCount: number,
-	sizeBytes: number,
 	wasOverwrite: boolean,
 	width: number,
 	theme: DiffTheme,
 ): string {
-	const separator = theme.fg("muted", " • ");
 	const actionLabel = wasOverwrite ? "overwritten" : "created";
-	const segments = [
-		theme.fg("toolOutput", `↳ ${emphasis(theme, actionLabel)}`),
-		theme.fg("muted", `${lineCount} ${pluralize(lineCount, "line")}`),
-		theme.fg("muted", formatSize(sizeBytes)),
-	];
 	return stabilizeBackgroundResets(
-		truncateToWidth(`${segments[0]}${separator}${segments[1]}${separator}${segments[2]}`, width),
+		truncateToWidth(theme.fg("toolOutput", `↳ ${emphasis(theme, actionLabel)}`), width),
 	);
 }
 
@@ -1839,7 +1854,6 @@ export function renderWriteDiffResult(
 	const highlightLine = createCodeLineHighlighter(language);
 	const wordWrap = config.diffWordWrap;
 	const hunkCount = entries.length > 0 ? 1 : 0;
-	const sizeBytes = Buffer.byteLength(content, "utf8");
 
 	let cachedWidth: number | undefined;
 	let cachedExpanded: boolean | undefined;
@@ -1864,8 +1878,6 @@ export function renderWriteDiffResult(
 			}
 
 			const header = renderWriteHeader(
-				lines.length,
-				sizeBytes,
 				options.fileExistedBeforeWrite === true,
 				safeWidth,
 				theme,
@@ -1898,16 +1910,19 @@ export function renderWriteDiffResult(
 
 			const bodyWithLimit = applyLineLimit(
 				bodyRows,
+				safeWidth,
 				options.expanded,
 				config.diffCollapsedLines,
 				hunkCount,
 				theme,
 			);
 			const frame = renderDiffFrameLine(safeWidth, theme);
-			cachedLines = (mode === "split"
-				? [header, ...bodyWithLimit]
-				: [header, frame, ...bodyWithLimit, frame])
-				.map((line) => stabilizeBackgroundResets(line));
+			cachedLines = clampDiffLinesToWidth(
+				mode === "split"
+					? [header, ...bodyWithLimit]
+					: [header, frame, ...bodyWithLimit, frame],
+				safeWidth,
+			);
 			cachedWidth = safeWidth;
 			cachedExpanded = options.expanded;
 			cachedMode = mode;
