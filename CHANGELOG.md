@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-03-13
+
+### Fixed
+- Add npm override for file-type >=21.3.1 to resolve CVE (infinite loop in ASF parser)
+
 ## [0.1.9] - 2026-03-13
 
 ### Added
