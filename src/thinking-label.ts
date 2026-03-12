@@ -298,12 +298,23 @@ function handleThinkingContextEvent(event: unknown, ctx: ExtensionContext | unde
   }
 }
 
-export function registerThinkingLabeling(pi: ExtensionAPI): void {
+export function registerThinkingLabeling(
+  pi: ExtensionAPI,
+  options: { enabled?: () => boolean } = {},
+): void {
+  const isEnabled = (): boolean => options.enabled?.() ?? true;
+
   pi.on("message_update", async (event, ctx) => {
+    if (!isEnabled()) {
+      return;
+    }
     handleThinkingMessageUpdateEvent(event, ctx);
   });
 
   pi.on("message_end", async (event, ctx) => {
+    if (!isEnabled()) {
+      return;
+    }
     handleThinkingMessageEndEvent(event, ctx);
   });
 

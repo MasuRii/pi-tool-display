@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Made thinking-label patching auto-disable on compatible forks that already provide core interaction summaries, avoiding duplicate `Thinking:` presentation while remaining silent on standard Pi.
+
 ## [0.1.8] - 2026-03-12
 
 ### Changed

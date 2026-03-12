@@ -1,4 +1,8 @@
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import {
+  AssistantMessageComponent,
+  SettingsManager,
+  type ExtensionAPI,
+} from "@mariozechner/pi-coding-agent";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +11,7 @@ import type { ToolDisplayConfig } from "./types.js";
 export interface ToolDisplayCapabilities {
 	hasMcpTooling: boolean;
 	hasRtkOptimizer: boolean;
+	hasCoreInteractionSummaries: boolean;
 }
 
 function toRecord(value: unknown): Record<string, unknown> {
@@ -74,10 +79,33 @@ function hasRtkExtensionPath(cwd: string): boolean {
 	return false;
 }
 
+export function detectCoreInteractionSummaries(): boolean {
+	try {
+		const hasToolDescriptionSetting =
+			typeof (SettingsManager as unknown as { prototype?: Record<string, unknown> })?.prototype
+				?.getHideToolDescriptions === "function";
+		const updateContent = (
+			AssistantMessageComponent as unknown as {
+				prototype?: { updateContent?: unknown };
+			}
+		)?.prototype?.updateContent;
+
+		if (!hasToolDescriptionSetting || typeof updateContent !== "function") {
+			return false;
+		}
+
+		const source = Function.prototype.toString.call(updateContent);
+		return source.includes("summarizeThinkingContent") || source.includes("Thinking: ${summary}");
+	} catch {
+		return false;
+	}
+}
+
 export function detectToolDisplayCapabilities(pi: ExtensionAPI, cwd: string): ToolDisplayCapabilities {
 	return {
 		hasMcpTooling: hasMcpTooling(pi),
 		hasRtkOptimizer: hasRtkCommand(pi) || hasRtkExtensionPath(cwd),
+		hasCoreInteractionSummaries: detectCoreInteractionSummaries(),
 	};
 }
 

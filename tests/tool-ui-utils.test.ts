@@ -22,6 +22,7 @@ import {
   buildCollapsedDiffHintText,
   clampRenderedLineToWidth,
 } from "../src/line-width-safety.ts";
+import { detectCoreInteractionSummaries } from "../src/capabilities.ts";
 
 const codePointWidthOps = {
   measure: (text: string): number => [...text].length,
@@ -198,3 +199,7 @@ test("line width clamp never returns text wider than the requested width", () =>
   assert.equal(clampRenderedLineToWidth("hello", 0, codePointWidthOps), "");
 });
 
+test("core interaction summary capability detection does not throw", () => {
+  assert.doesNotThrow(() => detectCoreInteractionSummaries());
+  assert.equal(typeof detectCoreInteractionSummaries(), "boolean");
+});

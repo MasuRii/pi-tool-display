@@ -39,6 +39,7 @@ export default function toolDisplayExtension(pi: ExtensionAPI): void {
   let capabilities: ToolDisplayCapabilities = {
     hasMcpTooling: false,
     hasRtkOptimizer: false,
+    hasCoreInteractionSummaries: false,
   };
 
   const refreshCapabilities = (): void => {
@@ -74,7 +75,9 @@ export default function toolDisplayExtension(pi: ExtensionAPI): void {
   registerToolDisplayOverrides(pi, getEffectiveConfig);
   registerNativeUserMessageBox(pi, getConfig);
   registerToolDisplayCommand(pi, { getConfig, setConfig, getCapabilities });
-  registerThinkingLabeling(pi);
+  registerThinkingLabeling(pi, {
+    enabled: () => !getCapabilities().hasCoreInteractionSummaries,
+  });
 
   pi.on("session_start", async (_event, ctx) => {
     refreshCapabilities();

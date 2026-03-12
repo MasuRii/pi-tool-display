@@ -198,6 +198,7 @@ The extension checks the current Pi environment and adjusts behavior automatical
 
 - **MCP tooling unavailable**: MCP settings are hidden and MCP output is forced off
 - **RTK optimizer unavailable**: RTK hint settings are hidden and RTK compaction hints are disabled
+- **Compatible fork core summaries detected**: duplicate thinking-label patching is skipped automatically so built-in fork summaries remain the single source of truth
 
 This keeps the UI aligned with what the current environment can actually support.
 
