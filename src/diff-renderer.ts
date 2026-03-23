@@ -321,6 +321,30 @@ function toNumber(value: string | undefined): number | null {
 	return Number.isNaN(parsed) ? null : parsed;
 }
 
+function anchorCanonicalLineCursors(
+	kind: DiffLineKind,
+	parsedNumber: number | null,
+	oldLineCursor: number | null,
+	newLineCursor: number | null,
+	lineNumberDelta: number,
+): { oldLineCursor: number | null; newLineCursor: number | null } {
+	if (parsedNumber === null) {
+		return { oldLineCursor, newLineCursor };
+	}
+
+	if (kind === "add") {
+		return {
+			oldLineCursor,
+			newLineCursor: newLineCursor ?? parsedNumber,
+		};
+	}
+
+	return {
+		oldLineCursor: parsedNumber,
+		newLineCursor: parsedNumber + lineNumberDelta,
+	};
+}
+
 function classifyMetaLine(raw: string): DiffMetaEntry["kind"] {
 	if (raw.startsWith("@@")) {
 		return "hunk";
@@ -370,6 +394,7 @@ function parseDiff(diffText: string): ParsedDiff {
 	let hunkIndex = 0;
 	let oldLineCursor: number | null = null;
 	let newLineCursor: number | null = null;
+	let lineNumberDelta = 0;
 
 	for (const rawLine of diffText.replace(/\r/g, "").split("\n")) {
 		stats.lines++;
@@ -380,14 +405,24 @@ function parseDiff(diffText: string): ParsedDiff {
 			stats.hunks = Math.max(stats.hunks, hunkIndex);
 			oldLineCursor = toNumber(hunkMatch[1]);
 			newLineCursor = toNumber(hunkMatch[3]);
+			lineNumberDelta = (newLineCursor ?? 0) - (oldLineCursor ?? 0);
 			entries.push({ kind: "hunk", raw: rawLine, hunkIndex });
 			continue;
 		}
 
 		if (rawLine.startsWith("diff --git ")) {
 			stats.files++;
+			oldLineCursor = null;
+			newLineCursor = null;
+			lineNumberDelta = 0;
 			entries.push({ kind: "file", raw: rawLine, hunkIndex });
 			continue;
+		}
+
+		if (rawLine.startsWith("--- ") || rawLine.startsWith("+++ ")) {
+			oldLineCursor = null;
+			newLineCursor = null;
+			lineNumberDelta = 0;
 		}
 
 		const canonical = parseCanonicalDiffLine(rawLine);
@@ -396,12 +431,40 @@ function parseDiff(diffText: string): ParsedDiff {
 			stats.hunks = Math.max(stats.hunks, hunkIndex);
 
 			const parsedNumber = toNumber(canonical.lineNumber);
-			const oldLineNumber = canonical.lineKind !== "add" ? parsedNumber : null;
-			const newLineNumber = canonical.lineKind !== "remove" ? parsedNumber : null;
+			const anchoredCursors = anchorCanonicalLineCursors(
+				canonical.lineKind,
+				parsedNumber,
+				oldLineCursor,
+				newLineCursor,
+				lineNumberDelta,
+			);
+			oldLineCursor = anchoredCursors.oldLineCursor;
+			newLineCursor = anchoredCursors.newLineCursor;
 
-			if (canonical.lineKind === "add") stats.added++;
-			if (canonical.lineKind === "remove") stats.removed++;
-			if (canonical.lineKind === "context") stats.context++;
+			const oldLineNumber = canonical.lineKind === "add" ? null : oldLineCursor;
+			const newLineNumber = canonical.lineKind === "remove" ? null : newLineCursor;
+
+			if (canonical.lineKind === "add") {
+				stats.added++;
+				if (newLineCursor !== null) {
+					newLineCursor++;
+				}
+				lineNumberDelta++;
+			} else if (canonical.lineKind === "remove") {
+				stats.removed++;
+				if (oldLineCursor !== null) {
+					oldLineCursor++;
+				}
+				lineNumberDelta--;
+			} else {
+				stats.context++;
+				if (oldLineCursor !== null) {
+					oldLineCursor++;
+				}
+				if (newLineCursor !== null) {
+					newLineCursor++;
+				}
+			}
 
 			entries.push({
 				kind: "line",
@@ -424,6 +487,7 @@ function parseDiff(diffText: string): ParsedDiff {
 			if (oldLineCursor !== null) {
 				oldLineCursor++;
 			}
+			lineNumberDelta--;
 			entries.push({
 				kind: "line",
 				lineKind: "remove",
@@ -445,6 +509,7 @@ function parseDiff(diffText: string): ParsedDiff {
 			if (newLineCursor !== null) {
 				newLineCursor++;
 			}
+			lineNumberDelta++;
 			entries.push({
 				kind: "line",
 				lineKind: "add",
@@ -1159,6 +1224,11 @@ function renderLinePrefix(
 	return `${marker}${spacer}${number}${spacer}`;
 }
 
+function renderLineContinuationPrefix(lineNumberWidth: number, rowBg: string | undefined, theme: DiffTheme): string {
+	const blankLineNumber = " ".repeat(lineNumberWidth);
+	return renderLinePrefix("context", blankLineNumber, theme, rowBg);
+}
+
 function renderCompactMarker(kind: DiffLineKind, theme: DiffTheme, rowBg: string | undefined): string {
 	if (kind === "add") {
 		return colorizeSegment(theme, "toolDiffAdded", "+", rowBg);
@@ -1229,13 +1299,14 @@ function renderLineCell(
 	const prefixPlainWidth = visibleWidth(`▌ ${lineNumber} `);
 	const dividerPlainWidth = 2;
 	const codeWidth = Math.max(0, width - prefixPlainWidth - dividerPlainWidth);
+	const continuationPrefix = renderLineContinuationPrefix(lineNumber.length, rowBg, theme);
 
 	if (!rowBg) {
 		const prefix = renderLinePrefix(kind, lineNumber, theme, undefined);
 		const divider = renderCodeDivider(theme, undefined);
 		const wrappedCodeLines = wrapToWidth(code, codeWidth, wordWrap);
-		return wrappedCodeLines.map((wrappedCodeLine) =>
-			stabilizeBackgroundResets(`${prefix}${divider}${wrappedCodeLine}`)
+		return wrappedCodeLines.map((wrappedCodeLine, index) =>
+			stabilizeBackgroundResets(`${index === 0 ? prefix : continuationPrefix}${divider}${wrappedCodeLine}`)
 		);
 	}
 
@@ -1243,9 +1314,10 @@ function renderLineCell(
 	const divider = renderCodeDivider(theme, rowBg);
 	const safeRestoreBgAnsi = restoreBgAnsi ?? rowBg ?? ANSI_BG_RESET;
 	const wrappedCodeLines = wrapToWidth(keepBackgroundAcrossResets(code, rowBg), codeWidth, wordWrap);
-	return wrappedCodeLines.map((wrappedCodeLine) => {
+	return wrappedCodeLines.map((wrappedCodeLine, index) => {
 		const safeWrappedCodeLine = keepBackgroundAcrossResets(wrappedCodeLine, rowBg);
-		return stabilizeBackgroundResets(`${prefix}${divider}${rowBg}${safeWrappedCodeLine}${safeRestoreBgAnsi}`);
+		const linePrefix = index === 0 ? prefix : continuationPrefix;
+		return stabilizeBackgroundResets(`${linePrefix}${divider}${rowBg}${safeWrappedCodeLine}${safeRestoreBgAnsi}`);
 	});
 }
 
