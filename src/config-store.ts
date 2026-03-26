@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { env } from "node:process";
 import {
 	BUILT_IN_TOOL_OVERRIDE_NAMES,
 	BASH_OUTPUT_MODES,
@@ -15,7 +16,13 @@ import {
 	type ToolOverrideOwnership,
 } from "./types.js";
 
-const CONFIG_DIR = join(homedir(), ".pi", "agent", "extensions", "pi-tool-display");
+const CONFIG_DIR = join(
+	...(env["PI_CODING_AGENT_DIR"]
+		? [env["PI_CODING_AGENT_DIR"]]
+		: [homedir(), ".pi", "agent"]),
+	"extensions",
+	"pi-tool-display",
+);
 const CONFIG_FILE = join(CONFIG_DIR, "config.json");
 
 interface LegacyToolDisplayConfigSource extends Partial<ToolDisplayConfig> {
