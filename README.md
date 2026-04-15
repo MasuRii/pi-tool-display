@@ -31,7 +31,7 @@ OpenCode-style tool rendering for the [Pi coding agent](https://github.com/mario
 Place this folder in one of Pi's auto-discovery locations:
 
 ```text
-# Global (all projects)
+# Global default (when PI_CODING_AGENT_DIR is unset)
 ~/.pi/agent/extensions/pi-tool-display
 
 # Project-specific
@@ -108,7 +108,8 @@ Advanced options remain in `config.json`.
 Runtime configuration is stored at:
 
 ```text
-~/.pi/agent/extensions/pi-tool-display/config.json
+Default global path: ~/.pi/agent/extensions/pi-tool-display/config.json
+Actual global path: $PI_CODING_AGENT_DIR/extensions/pi-tool-display/config.json when PI_CODING_AGENT_DIR is set
 ```
 
 A starter template is included at `config/config.example.json`.
@@ -127,6 +128,7 @@ A starter template is included at `config/config.example.json`.
 | `bashOutputMode` | string | `"opencode"` | `opencode` (collapse), `summary` (line count), or `preview` (show lines) |
 | `bashCollapsedLines` | number | `10` | Lines shown for collapsed bash output (opencode mode) |
 | `diffViewMode` | string | `"auto"` | `auto`, `split`, or `unified` |
+| `diffIndicatorMode` | string | `"bars"` | `bars` (vertical indicators), `classic` (+/- markers), or `none` |
 | `diffSplitMinWidth` | number | `120` | Minimum width before auto mode prefers split diffs |
 | `diffCollapsedLines` | number | `24` | Diff lines shown before collapsing |
 | `diffWordWrap` | boolean | `true` | Wrap long diff lines when needed |
@@ -177,6 +179,7 @@ Set any entry to `false` if another extension should handle that tool instead.
   "bashOutputMode": "opencode",
   "bashCollapsedLines": 15,
   "diffViewMode": "auto",
+  "diffIndicatorMode": "bars",
   "diffSplitMinWidth": 120,
   "diffCollapsedLines": 24,
   "diffWordWrap": true,
@@ -226,7 +229,7 @@ If another extension is already rendering one of the built-in tools:
 
 If your settings are not being applied:
 
-1. Check that `~/.pi/agent/extensions/pi-tool-display/config.json` exists
+1. Check that the global Pi tool-display config exists (default: `~/.pi/agent/extensions/pi-tool-display/config.json`, respects `PI_CODING_AGENT_DIR`)
 2. Make sure the JSON is valid
 3. Run `/tool-display show` to inspect the effective config summary
 
