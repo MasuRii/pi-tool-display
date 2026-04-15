@@ -51,7 +51,7 @@ function summarizeConfig(config: ToolDisplayConfig, capabilities: ToolDisplayCap
 		`expandedMax=${config.expandedPreviewMaxLines}`,
 		`bash=${config.bashOutputMode}`,
 		`bashLines=${config.bashCollapsedLines}`,
-		`diff=${config.diffViewMode}@${config.diffSplitMinWidth}`,
+		`diff=${config.diffViewMode}/${config.diffIndicatorMode}@${config.diffSplitMinWidth}`,
 		`diffLines=${config.diffCollapsedLines}`,
 		`diffWrap=${toOnOff(config.diffWordWrap)}`,
 	];
@@ -83,7 +83,7 @@ function buildAdvancedNotes(
 ): string[] {
 	const notes = [
 		...extra,
-		"Manual JSON edits also expose registerToolOverrides.*, expandedPreviewMaxLines, diffSplitMinWidth, diffCollapsedLines, and diffWordWrap.",
+		"Manual JSON edits also expose registerToolOverrides.*, expandedPreviewMaxLines, diffSplitMinWidth, diffCollapsedLines, diffIndicatorMode, and diffWordWrap.",
 		`Tool ownership is currently ${toolOwnershipSummary(config)} and still applies after /reload.`,
 		`Truncation hints are ${toOnOff(config.showTruncationHints)}${capabilities.hasRtkOptimizer ? `; RTK hints are ${toOnOff(config.showRtkCompactionHints)}.` : "."}`,
 	];
@@ -264,10 +264,31 @@ function buildInspectorSettings(
 				"unified — force a single-column diff",
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"Manual JSON tuning exposes diffSplitMinWidth, diffCollapsedLines, and diffWordWrap for more aggressive diff control.",
+				"Manual JSON tuning exposes diffSplitMinWidth, diffCollapsedLines, diffIndicatorMode, and diffWordWrap for more aggressive diff control.",
 			]),
 			inspectorPath: configPath,
 			searchTerms: ["diff", "edit", "write", "split", "unified", "auto"],
+		},
+		{
+			id: "diffIndicatorMode",
+			label: "Diff indicators",
+			currentValue: config.diffIndicatorMode,
+			values: ["bars", "classic", "none"],
+			inspectorTitle: "Diff Indicators",
+			inspectorSummary: [
+				"Controls whether changed diff lines use vertical bars, classic +/- markers, or no indicators at all.",
+				"Bars continue across wrapped changed rows, classic markers appear only on the first wrapped row, and none removes the indicator column styling.",
+			],
+			inspectorOptions: [
+				"bars — persistent vertical indicators for changed rows",
+				"classic — + / - markers on the first visual row only",
+				"none — no diff indicator marker",
+			],
+			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
+				"Use config.json when you want this indicator preference to remain explicit alongside other diff rendering overrides.",
+			]),
+			inspectorPath: configPath,
+			searchTerms: ["diff", "indicator", "bars", "classic", "none", "marker"],
 		},
 		{
 			id: "enableNativeUserMessageBox",
@@ -343,6 +364,11 @@ function applySetting(config: ToolDisplayConfig, id: string, value: string): Too
 			return {
 				...config,
 				diffViewMode: value as ToolDisplayConfig["diffViewMode"],
+			};
+		case "diffIndicatorMode":
+			return {
+				...config,
+				diffIndicatorMode: value as ToolDisplayConfig["diffIndicatorMode"],
 			};
 		default:
 			return config;

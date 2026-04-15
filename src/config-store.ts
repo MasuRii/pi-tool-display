@@ -1,5 +1,5 @@
+import { getAgentDir } from "@mariozechner/pi-coding-agent";
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import {
 	BUILT_IN_TOOL_OVERRIDE_NAMES,
@@ -7,6 +7,7 @@ import {
 	DEFAULT_TOOL_DISPLAY_CONFIG,
 	type ConfigLoadResult,
 	type ConfigSaveResult,
+	DIFF_INDICATOR_MODES,
 	DIFF_VIEW_MODES,
 	MCP_OUTPUT_MODES,
 	READ_OUTPUT_MODES,
@@ -15,7 +16,7 @@ import {
 	type ToolOverrideOwnership,
 } from "./types.js";
 
-const CONFIG_DIR = join(homedir(), ".pi", "agent", "extensions", "pi-tool-display");
+const CONFIG_DIR = join(getAgentDir(), "extensions", "pi-tool-display");
 const CONFIG_FILE = join(CONFIG_DIR, "config.json");
 
 interface LegacyToolDisplayConfigSource extends Partial<ToolDisplayConfig> {
@@ -78,6 +79,12 @@ function toDiffViewMode(value: unknown): ToolDisplayConfig["diffViewMode"] {
 		: DEFAULT_TOOL_DISPLAY_CONFIG.diffViewMode;
 }
 
+function toDiffIndicatorMode(value: unknown): ToolDisplayConfig["diffIndicatorMode"] {
+	return DIFF_INDICATOR_MODES.includes(value as ToolDisplayConfig["diffIndicatorMode"])
+		? (value as ToolDisplayConfig["diffIndicatorMode"])
+		: DEFAULT_TOOL_DISPLAY_CONFIG.diffIndicatorMode;
+}
+
 function cloneDefaultConfig(): ToolDisplayConfig {
 	return {
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
@@ -128,6 +135,7 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 		bashOutputMode: toBashOutputMode(source.bashOutputMode),
 		bashCollapsedLines: clampNumber(source.bashCollapsedLines, 0, 80, DEFAULT_TOOL_DISPLAY_CONFIG.bashCollapsedLines),
 		diffViewMode: toDiffViewMode(source.diffViewMode),
+		diffIndicatorMode: toDiffIndicatorMode(source.diffIndicatorMode),
 		diffSplitMinWidth: clampNumber(source.diffSplitMinWidth, 70, 240, DEFAULT_TOOL_DISPLAY_CONFIG.diffSplitMinWidth),
 		diffCollapsedLines: clampNumber(source.diffCollapsedLines, 4, 240, DEFAULT_TOOL_DISPLAY_CONFIG.diffCollapsedLines),
 		diffWordWrap: toBoolean(source.diffWordWrap, DEFAULT_TOOL_DISPLAY_CONFIG.diffWordWrap),

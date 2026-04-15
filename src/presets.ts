@@ -52,6 +52,7 @@ function configsEqual(a: ToolDisplayConfig, b: ToolDisplayConfig): boolean {
 		a.bashOutputMode === b.bashOutputMode &&
 		a.bashCollapsedLines === b.bashCollapsedLines &&
 		a.diffViewMode === b.diffViewMode &&
+		a.diffIndicatorMode === b.diffIndicatorMode &&
 		a.diffSplitMinWidth === b.diffSplitMinWidth &&
 		a.diffCollapsedLines === b.diffCollapsedLines &&
 		a.diffWordWrap === b.diffWordWrap &&

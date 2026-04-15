@@ -19,7 +19,7 @@ function renderInsideToolBox(component: Component, width: number): string[] {
 }
 
 function extractDisplayedLineNumber(line: string): string | null {
-	const match = line.match(/^\s*(?:▌\s+(\S+)|)\s+│/);
+	const match = line.match(/^\s*(?:[▌+\-]?\s*)(\d*)\s+│/);
 	if (!match) {
 		return null;
 	}

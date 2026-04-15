@@ -17,6 +17,7 @@
   "bashOutputMode": "opencode",
   "bashCollapsedLines": 10,
   "diffViewMode": "auto",
+  "diffIndicatorMode": "bars",
   "diffSplitMinWidth": 120,
   "diffCollapsedLines": 24,
   "diffWordWrap": true,

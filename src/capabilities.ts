@@ -1,6 +1,5 @@
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { getAgentDir, type ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { isMcpToolCandidate } from "./tool-metadata.js";
 import type { ToolDisplayConfig } from "./types.js";
@@ -29,10 +28,7 @@ function hasRtkCommand(pi: ExtensionAPI): boolean {
 }
 
 function hasRtkExtensionPath(cwd: string): boolean {
-	const candidates = [
-		join(homedir(), ".pi", "agent", "extensions", "pi-rtk-optimizer"),
-		join(cwd, ".pi", "extensions", "pi-rtk-optimizer"),
-	];
+	const candidates = [join(getAgentDir(), "extensions", "pi-rtk-optimizer"), join(cwd, ".pi", "extensions", "pi-rtk-optimizer")];
 
 	for (const candidate of candidates) {
 		try {
