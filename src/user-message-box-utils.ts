@@ -1,4 +1,5 @@
-const ANSI_ESCAPE_PATTERN = /\x1b\[([0-9;]*)m/g;
+const SGR_ESCAPE_PATTERN = /\x1b\[([0-9;]*)m/g;
+const OSC_ESCAPE_PATTERN = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 const STYLE_RESET_PARAMS = [39, 22, 23, 24, 25, 27, 28, 29, 59] as const;
 const USER_MESSAGE_BACKGROUND = "userMessageBg";
 const ANSI_BG_RESET = "\x1b[49m";
@@ -60,12 +61,21 @@ function sanitizeSgrParams(params: number[]): number[] {
   return sanitized;
 }
 
-function sanitizeAnsiForThemedOutput(text: string): string {
-  if (!text || !text.includes("\x1b[")) {
+function stripOscSequences(text: string): string {
+  if (!text || !text.includes("\x1b]")) {
     return text;
   }
 
-  return text.replace(ANSI_ESCAPE_PATTERN, (_sequence, rawParams: string) => {
+  return text.replace(OSC_ESCAPE_PATTERN, "");
+}
+
+function sanitizeAnsiForThemedOutput(text: string): string {
+  const withoutOsc = stripOscSequences(text);
+  if (!withoutOsc || !withoutOsc.includes("\x1b[")) {
+    return withoutOsc;
+  }
+
+  return withoutOsc.replace(SGR_ESCAPE_PATTERN, (_sequence, rawParams: string) => {
     const parsed = toSgrParams(rawParams);
     if (parsed.length === 0) {
       return "";
@@ -111,8 +121,10 @@ export function applyUserMessageBackground(
 }
 
 function isVisuallyEmptyLine(line: string): boolean {
-  const withoutAnsi = line.replace(ANSI_ESCAPE_PATTERN, "");
-  return withoutAnsi.trim().length === 0;
+  const withoutControlSequences = line
+    .replace(OSC_ESCAPE_PATTERN, "")
+    .replace(SGR_ESCAPE_PATTERN, "");
+  return withoutControlSequences.trim().length === 0;
 }
 
 function trimEdgePadding(lines: string[]): string[] {
