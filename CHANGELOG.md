@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Restored native user message box spacing on recent Pi releases by extracting markdown through the newer nested `Box` wrapper and stripping OSC 133 prompt markers from fallback content normalization
+
 ## [0.3.2] - 2026-04-15
 
 ### Added
