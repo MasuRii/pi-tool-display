@@ -31,11 +31,29 @@ function isMarkdownLike(value: unknown): value is MarkdownLike {
   return isRecord(value) && typeof value.text === "string" && value.theme !== undefined;
 }
 
+function findMarkdownChild(value: unknown): MarkdownLike | undefined {
+  if (isMarkdownLike(value)) {
+    return value;
+  }
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const children = Array.isArray(value.children) ? value.children : [];
+  for (const child of children) {
+    const markdownChild = findMarkdownChild(child);
+    if (markdownChild) {
+      return markdownChild;
+    }
+  }
+
+  return undefined;
+}
+
 export function extractUserMessageMarkdownState(
   userMessage: UserMessageLike,
 ): UserMessageMarkdownState | undefined {
-  const children = Array.isArray(userMessage.children) ? userMessage.children : [];
-  const markdownChild = children.find((child) => isMarkdownLike(child));
+  const markdownChild = findMarkdownChild(userMessage);
   if (!markdownChild || typeof markdownChild.text !== "string") {
     return undefined;
   }
