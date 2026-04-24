@@ -17,6 +17,7 @@ OpenCode-style tool rendering for the [Pi coding agent](https://github.com/mario
 - **Compact built-in tool rendering** for `read`, `grep`, `find`, `ls`, `bash`, `edit`, and `write`
 - **MCP-aware rendering** with hidden, summary, and preview modes
 - **Adaptive edit/write diffs** with split or unified layouts, syntax highlighting, inline emphasis, and narrow-pane width clamping
+- **Projected pending edit/write previews** that show `pending edit`, `pending overwrite`, and `pending create` diffs while partial tool calls are still streaming
 - **Progressive collapsed diff hints** that shorten automatically on small terminal widths instead of overflowing
 - **Three presets**: `opencode`, `balanced`, and `verbose`
 - **Thinking labels** during streaming and final message rendering, with context sanitization to avoid leaking presentation labels back into future model turns
@@ -194,6 +195,8 @@ Set any entry to `false` if another extension should handle that tool instead.
 
 `edit` and `write` results use the same diff renderer. In `auto` mode the extension chooses split or unified layout based on available width. On narrow panes it clamps rendered lines and shortens collapsed hint text so the diff stays readable instead of spilling past the terminal width.
 
+While tool arguments are still streaming, partial `edit` and `write` calls can show projected pending previews. Deterministic edits render as `pending edit` diffs against current file contents, writes render as `pending overwrite` or `pending create`, and unresolved projections show a clear preview notice instead of guessing.
+
 ### Write summaries
 
 When content is available, `write` call summaries include line count and byte size information inline so you can quickly see the size of the pending write before expanding the result.
@@ -249,6 +252,7 @@ pi-tool-display/
 │   ├── config-store.ts              # Config load/save and normalization
 │   ├── diff-renderer.ts             # Edit/write diff rendering engine
 │   ├── line-width-safety.ts         # Width clamping helpers for narrow panes
+│   ├── pending-diff-preview.ts      # Partial edit/write preview projection helpers
 │   ├── presets.ts                   # Preset definitions and matching
 │   ├── render-utils.ts              # Shared rendering helpers
 │   ├── thinking-label.ts            # Thinking label formatting and context sanitization
@@ -264,6 +268,9 @@ pi-tool-display/
 ├── config/
 │   └── config.example.json          # Starter config template
 ├── tests/
+│   ├── diff-renderer-ansi.test.ts   # ANSI/background handling tests for diff rendering
+│   ├── diff-renderer-width.test.ts  # Width and background coverage tests for diff rendering
+│   ├── tool-overrides-registration.test.ts # Tool override registration tests
 │   └── tool-ui-utils.test.ts        # Utility tests for user message and diff helpers
 └── assets/
     └── pi-tool-display.png          # README screenshot
