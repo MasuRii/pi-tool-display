@@ -10,6 +10,7 @@ import {
 } from "../src/user-message-box-markdown.ts";
 import {
   createUserMessageMarkdownLineRenderer,
+  patchNativeUserMessagePrototype,
   shouldBypassUserMessageMarkdownRebuild,
 } from "../src/user-message-box-renderer.ts";
 import {
@@ -113,6 +114,32 @@ test("user message markdown extraction removes nested background styling", () =>
   assert.equal("bgColor" in (extracted?.defaultTextStyle ?? {}), false);
 });
 
+test("user message markdown extraction finds markdown nested inside the native box", () => {
+  const theme = { heading: () => "" };
+  const color = (text: string): string => text;
+  const extracted = extractUserMessageMarkdownState({
+    children: [
+      {
+        children: [
+          {
+            text: "Nested **markdown**",
+            theme,
+            defaultTextStyle: {
+              color,
+              bgColor: (text: string): string => text,
+            },
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(extracted?.text, "Nested **markdown**");
+  assert.equal(extracted?.theme, theme);
+  assert.equal(extracted?.defaultTextStyle?.color, color);
+  assert.equal("bgColor" in (extracted?.defaultTextStyle ?? {}), false);
+});
+
 test("user message markdown renderer reuses cached markdown renders for identical state", () => {
   let rendererCreationCount = 0;
   let renderCallCount = 0;
@@ -177,13 +204,33 @@ test("user message renderer adds one top and bottom padding row inside the box",
   assert.deepEqual(addUserMessageVerticalPadding(["Line 1", "Line 2"]), ["", "Line 1", "Line 2", ""]);
 });
 
+test("native user message renderer inserts one blank spacer line before the box", () => {
+  const prototype: PatchableUserMessagePrototype = {
+    render: () => ["Original user content"],
+  };
+
+  patchNativeUserMessagePrototype(prototype, () => undefined, () => true);
+
+  const rendered = prototype.render(24);
+
+  assert.equal(rendered[0], "");
+  assert.match(rendered[1] ?? "", /^╭/);
+});
+
 test("user message blank ansi lines are cleared before wrapping", () => {
   assert.equal(normalizeUserMessageContentLine("\u001b[0m"), "");
   assert.equal(normalizeUserMessageContentLine("   \u001b[31m\u001b[0m"), "");
+  assert.equal(normalizeUserMessageContentLine("\u001b]133;A\u0007   \u001b]133;B\u0007"), "");
 
   const normalized = normalizeUserMessageContentLine("\u001b[31mhello\u001b[0m");
   assert.match(normalized, /hello/);
   assert.doesNotMatch(normalized, /\u001b\[0m/);
+
+  const withoutOsc = normalizeUserMessageContentLine("\u001b]133;A\u0007hello\u001b]133;B\u0007");
+  assert.equal(withoutOsc, "hello");
+
+  const hyperlink = "\u001b]8;;https://example.com\u001b\\link\u001b]8;;\u001b\\";
+  assert.equal(normalizeUserMessageContentLine(hyperlink), hyperlink);
 });
 
 test("user message background painting keeps trailing padding inside explicit background cells", () => {
@@ -199,6 +246,10 @@ test("user message background painting keeps trailing padding inside explicit ba
   assert.equal(rendered.indexOf("\u001b[49m"), rendered.lastIndexOf("\u001b[49m"));
   assert.equal(rendered.slice(rendered.lastIndexOf("\u001b[49m") - 3, rendered.lastIndexOf("\u001b[49m")), "   ");
   assert.doesNotMatch(rendered, /\u001b\[0m/);
+
+  const hyperlink = "\u001b]8;;https://example.com\u001b\\link\u001b]8;;\u001b\\";
+  const hyperlinkRendered = applyUserMessageBackground(undefined, hyperlink);
+  assert.equal(hyperlinkRendered, hyperlink);
 });
 
 test("user message background painting falls back to theme bg helper", () => {
@@ -220,6 +271,14 @@ test("user message content trims edge padding but preserves intentional interior
     "world",
   ]);
   assert.deepEqual(normalizeUserMessageContentLines(["\u001b[0m", "   "]), []);
+  assert.deepEqual(
+    normalizeUserMessageContentLines([
+      "\u001b]133;A\u0007   ",
+      "hello",
+      "\u001b]133;B\u0007\u001b]133;C\u0007   ",
+    ]),
+    ["hello"],
+  );
 });
 
 test("collapsed diff hint shrinks to fit narrow panes", () => {
