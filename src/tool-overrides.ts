@@ -18,7 +18,7 @@ import {
   createWriteTool,
   formatSize,
 } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
+import { Container, Spacer, Text } from "@mariozechner/pi-tui";
 import { existsSync, readFileSync } from "node:fs";
 import { renderBashCall } from "./bash-display.js";
 import { homedir } from "node:os";
@@ -35,6 +35,11 @@ import {
   splitLines,
 } from "./render-utils.js";
 import { renderEditDiffResult, renderWriteDiffResult } from "./diff-renderer.js";
+import {
+  buildPendingEditPreviewData,
+  buildPendingWritePreviewData,
+  type PendingDiffPreviewData,
+} from "./pending-diff-preview.js";
 import {
   buildPromptSnippetFromDescription,
   extractPromptMetadata,
@@ -68,7 +73,9 @@ type ConfigGetter = () => ToolDisplayConfig;
 
 interface RenderTheme {
   fg(color: string, text: string): string;
+  bg?(color: string, text: string): string;
   bold(text: string): string;
+  getBgAnsi?(color: string): string;
 }
 
 interface RtkCompactionInfo {
@@ -84,6 +91,8 @@ interface ToolRenderContextLike {
   toolCallId?: string;
   state?: unknown;
   isError?: boolean;
+  isPartial?: boolean;
+  expanded?: boolean;
 }
 
 interface WriteExecutionMeta {
@@ -91,9 +100,16 @@ interface WriteExecutionMeta {
   fileExistedBeforeWrite: boolean;
 }
 
+interface PendingDiffPreviewState {
+  key?: string;
+  data?: PendingDiffPreviewData;
+}
+
 const builtInToolCache = new Map<string, BuiltInTools>();
 const RTK_COMPACTION_LABEL = "compacted by RTK";
 const WRITE_EXECUTION_META_STATE_KEY = "__piToolDisplayWriteExecutionMeta";
+const EDIT_PENDING_PREVIEW_STATE_KEY = "__piToolDisplayEditPendingPreview";
+const WRITE_PENDING_PREVIEW_STATE_KEY = "__piToolDisplayWritePendingPreview";
 
 function cloneToolParameters<T>(parameters: T, seen = new WeakMap<object, unknown>()): T {
   if (parameters === null || typeof parameters !== "object") {
@@ -291,7 +307,7 @@ function getWriteExecutionMeta(
     ? toRecord(carrier[WRITE_EXECUTION_META_STATE_KEY])
     : undefined;
   if (existing && Object.keys(existing).length > 0) {
-    return existing as WriteExecutionMeta;
+    return existing as unknown as WriteExecutionMeta;
   }
 
   if (!context.toolCallId) {
@@ -311,6 +327,82 @@ function getWriteExecutionMeta(
   }
 
   return pending;
+}
+
+function getPendingDiffPreviewState(
+  context: ToolRenderContextLike | undefined,
+  stateKey: string,
+): PendingDiffPreviewState | undefined {
+  const carrier = toStateCarrier(context?.state);
+  if (!carrier) {
+    return undefined;
+  }
+
+  const current = carrier[stateKey];
+  if (current && typeof current === "object" && !Array.isArray(current)) {
+    return current as PendingDiffPreviewState;
+  }
+
+  const next: PendingDiffPreviewState = {};
+  carrier[stateKey] = next;
+  return next;
+}
+
+function resolvePendingDiffPreview(
+  context: ToolRenderContextLike | undefined,
+  stateKey: string,
+  previewKey: string | undefined,
+  compute: () => PendingDiffPreviewData | undefined,
+): PendingDiffPreviewData | undefined {
+  const previewState = getPendingDiffPreviewState(context, stateKey);
+  if (!previewState) {
+    return compute();
+  }
+
+  if (previewState.key !== previewKey) {
+    previewState.key = previewKey;
+    previewState.data = previewKey ? compute() : undefined;
+  }
+
+  return previewState.data;
+}
+
+function buildPendingDiffCallComponent(
+  summaryText: string,
+  previewData: PendingDiffPreviewData | undefined,
+  context: ToolRenderContextLike | undefined,
+  config: ToolDisplayConfig,
+  theme: RenderTheme,
+): Text | Container {
+  if (!context?.isPartial || !previewData) {
+    return new Text(summaryText, 0, 0);
+  }
+
+  const container = new Container();
+  container.addChild(new Text(summaryText, 0, 0));
+  container.addChild(new Spacer(1));
+
+  if (previewData.notice || typeof previewData.nextContent !== "string") {
+    container.addChild(new Text(theme.fg("warning", previewData.notice || "Preview unavailable."), 0, 0));
+    return container;
+  }
+
+  container.addChild(
+    renderWriteDiffResult(
+      previewData.nextContent,
+      {
+        expanded: context.expanded === true,
+        filePath: previewData.filePath,
+        previousContent: previewData.previousContent,
+        fileExistedBeforeWrite: previewData.fileExistedBeforeWrite,
+        headerLabel: previewData.headerLabel,
+      },
+      config,
+      theme,
+      "",
+    ),
+  );
+  return container;
 }
 
 function formatLineCountSuffix(
@@ -1056,6 +1148,7 @@ export function registerToolDisplayOverrides(
     description: bootstrapTools.edit.description,
     ...builtInPromptMetadata.edit,
     parameters: clonedParameters.edit,
+    renderShell: "default",
     prepareArguments: bootstrapTools.edit.prepareArguments,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       return getBuiltInTools(ctx.cwd).edit.execute(
@@ -1065,14 +1158,22 @@ export function registerToolDisplayOverrides(
         onUpdate,
       );
     },
-    renderCall(args, theme) {
+    renderCall(args, theme, context) {
       const path = shortenPath(getToolPathArg(args));
       const lineCount = getEditLineCount(args);
-      return new Text(
-        `${theme.fg("toolTitle", theme.bold("edit"))} ${theme.fg("accent", path || "...")}${formatLineCountSuffix(lineCount, theme)}`,
-        0,
-        0,
+      const summaryText = `${theme.fg("toolTitle", theme.bold("edit"))} ${theme.fg("accent", path || "...")}${formatLineCountSuffix(lineCount, theme)}`;
+      if (!context.argsComplete || !context.isPartial) {
+        return new Text(summaryText, 0, 0);
+      }
+
+      const previewKey = JSON.stringify({ path: getToolPathArg(args) ?? null, edits: toRecord(args).edits ?? null, oldText: getStringField(args, "oldText") ?? null, newText: getStringField(args, "newText") ?? null });
+      const previewData = resolvePendingDiffPreview(
+        context,
+        EDIT_PENDING_PREVIEW_STATE_KEY,
+        previewKey,
+        () => buildPendingEditPreviewData(args, context.cwd),
       );
+      return buildPendingDiffCallComponent(summaryText, previewData, context, getConfig(), theme);
     },
     renderResult(result, options, theme, context) {
       const lineCount = getEditLineCount(context?.args);
@@ -1125,7 +1226,7 @@ export function registerToolDisplayOverrides(
         onUpdate,
       );
     },
-    renderCall(args, theme) {
+    renderCall(args, theme, context) {
       const content = getToolContentArg(args);
       const lineCount = countWriteContentLines(content);
       const sizeBytes = getWriteContentSizeBytes(content);
@@ -1136,11 +1237,19 @@ export function registerToolDisplayOverrides(
       })
         ? formatWriteCallSuffix(lineCount, sizeBytes, theme)
         : "";
-      return new Text(
-        `${theme.fg("toolTitle", theme.bold("write"))} ${theme.fg("accent", path || "...")}${suffix}`,
-        0,
-        0,
+      const summaryText = `${theme.fg("toolTitle", theme.bold("write"))} ${theme.fg("accent", path || "...")}${suffix}`;
+      if (!context.argsComplete || !context.isPartial) {
+        return new Text(summaryText, 0, 0);
+      }
+
+      const previewKey = JSON.stringify({ path: getToolPathArg(args) ?? null, content: content ?? null });
+      const previewData = resolvePendingDiffPreview(
+        context,
+        WRITE_PENDING_PREVIEW_STATE_KEY,
+        previewKey,
+        () => buildPendingWritePreviewData(args, context.cwd),
       );
+      return buildPendingDiffCallComponent(summaryText, previewData, context, getConfig(), theme);
     },
     renderResult(result, options, theme, context) {
       const content = getToolContentArg(context?.args);

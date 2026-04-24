@@ -16,6 +16,7 @@ import { DEFAULT_TOOL_DISPLAY_CONFIG, type DiffIndicatorMode, type ToolDisplayCo
 
 interface DiffTheme {
 	fg(color: string, text: string): string;
+	bg?(color: string, text: string): string;
 	bold?(text: string): string;
 	getFgAnsi?(color: string): string;
 	getBgAnsi?(color: string): string;
@@ -92,6 +93,7 @@ interface DiffRenderOptions {
 	filePath?: string;
 	previousContent?: string;
 	fileExistedBeforeWrite?: boolean;
+	headerLabel?: string;
 }
 
 type CodeLineHighlighter = (line: string) => string;
@@ -103,9 +105,9 @@ const SPLIT_SEPARATOR = " │ ";
 const MIN_LINE_NUMBER_WIDTH = 2;
 const MIN_SPLIT_COLUMN_WIDTH = 24;
 const MAX_INLINE_DIFF_LINE_LENGTH = 700;
-const ADD_ROW_BACKGROUND_MIX_RATIO = 0.24;
+const ADD_ROW_BACKGROUND_MIX_RATIO = 0.12;
 const REMOVE_ROW_BACKGROUND_MIX_RATIO = 0.12;
-const ADD_INLINE_EMPHASIS_MIX_RATIO = 0.44;
+const ADD_INLINE_EMPHASIS_MIX_RATIO = 0.26;
 const REMOVE_INLINE_EMPHASIS_MIX_RATIO = 0.26;
 const ADDITION_TINT_TARGET: RgbColor = { r: 84, g: 190, b: 118 };
 const DELETION_TINT_TARGET: RgbColor = { r: 232, g: 95, b: 122 };
@@ -146,10 +148,44 @@ function toSgrParams(rawParams: string): number[] {
 	return parsed.length > 0 ? parsed : [];
 }
 
+function isFiniteSgrParam(value: number | undefined): value is number {
+	return typeof value === "number" && Number.isFinite(value);
+}
+
+function readSgrColorSequence(params: number[], index: number): number[] | undefined {
+	const param = params[index];
+	if (param !== 38 && param !== 48) {
+		return undefined;
+	}
+
+	const colorMode = params[index + 1];
+	if (colorMode === 5) {
+		const colorValue = params[index + 2];
+		return isFiniteSgrParam(colorValue) ? [param, colorMode, colorValue] : undefined;
+	}
+
+	if (colorMode === 2) {
+		const red = params[index + 2];
+		const green = params[index + 3];
+		const blue = params[index + 4];
+		return isFiniteSgrParam(red) && isFiniteSgrParam(green) && isFiniteSgrParam(blue)
+			? [param, colorMode, red, green, blue]
+			: undefined;
+	}
+
+	return undefined;
+}
+
 function sequenceResetsBackground(params: number[]): boolean {
-	for (const param of params) {
+	for (let index = 0; index < params.length; index++) {
+		const param = params[index] ?? 0;
 		if (param === 0 || param === 49) {
 			return true;
+		}
+
+		const colorSequence = readSgrColorSequence(params, index);
+		if (colorSequence) {
+			index += colorSequence.length - 1;
 		}
 	}
 
@@ -171,33 +207,11 @@ function stripBackgroundResetParams(params: number[]): number[] {
 			continue;
 		}
 
-		if (param === 38 || param === 48) {
-			const colorMode = params[index + 1];
-			if (colorMode === 5) {
-				const colorValue = params[index + 2];
-				if (typeof colorValue === "number" && Number.isFinite(colorValue)) {
-					sanitized.push(param, colorMode, colorValue);
-					index += 2;
-					continue;
-				}
-			}
-			if (colorMode === 2) {
-				const red = params[index + 2];
-				const green = params[index + 3];
-				const blue = params[index + 4];
-				if (
-					typeof red === "number"
-					&& typeof green === "number"
-					&& typeof blue === "number"
-					&& Number.isFinite(red)
-					&& Number.isFinite(green)
-					&& Number.isFinite(blue)
-				) {
-					sanitized.push(param, colorMode, red, green, blue);
-					index += 4;
-					continue;
-				}
-			}
+		const colorSequence = readSgrColorSequence(params, index);
+		if (colorSequence) {
+			sanitized.push(...colorSequence);
+			index += colorSequence.length - 1;
+			continue;
 		}
 
 		sanitized.push(param);
@@ -1024,13 +1038,46 @@ function mixRgb(base: RgbColor, tint: RgbColor, ratio: number): RgbColor {
 	};
 }
 
+function extractThemeBackgroundAnsi(text: string): string | undefined {
+	if (!text || !text.includes("\x1b[")) {
+		return undefined;
+	}
+
+	ANSI_SGR_PATTERN.lastIndex = 0;
+	let match: RegExpExecArray | null;
+	while ((match = ANSI_SGR_PATTERN.exec(text)) !== null) {
+		const parsed = toSgrParams(match[1] ?? "");
+		for (let index = 0; index < parsed.length; index += 1) {
+			const param = parsed[index] ?? 0;
+			if ((param >= 40 && param <= 47) || (param >= 100 && param <= 107)) {
+				return `\x1b[${param}m`;
+			}
+
+			const colorSequence = readSgrColorSequence(parsed, index);
+			if (colorSequence?.[0] === 48) {
+				return `\x1b[${colorSequence.join(";")}m`;
+			}
+			if (colorSequence) {
+				index += colorSequence.length - 1;
+			}
+		}
+	}
+
+	return undefined;
+}
+
 function readThemeAnsi(theme: DiffTheme, kind: "fg" | "bg", slot: string): string | undefined {
 	try {
 		if (kind === "fg" && typeof theme.getFgAnsi === "function") {
 			return theme.getFgAnsi(slot);
 		}
-		if (kind === "bg" && typeof theme.getBgAnsi === "function") {
-			return theme.getBgAnsi(slot);
+		if (kind === "bg") {
+			if (typeof theme.getBgAnsi === "function") {
+				return theme.getBgAnsi(slot);
+			}
+			if (typeof theme.bg === "function") {
+				return extractThemeBackgroundAnsi(theme.bg(slot, " "));
+			}
 		}
 	} catch {
 		return undefined;
@@ -2019,7 +2066,7 @@ export function renderEditDiffResult(
 			}
 
 			if (mode === "summary") {
-				cachedLines = renderSummaryRows(parsed.stats, safeWidth, theme);
+				cachedLines = clampDiffLinesToWidth(renderSummaryRows(parsed.stats, safeWidth, theme), safeWidth);
 				cachedWidth = safeWidth;
 				cachedExpanded = options.expanded;
 				cachedMode = mode;
@@ -2109,8 +2156,9 @@ function renderWriteHeader(
 	wasOverwrite: boolean,
 	width: number,
 	theme: DiffTheme,
+	headerLabel?: string,
 ): string {
-	const actionLabel = wasOverwrite ? "overwritten" : "created";
+	const actionLabel = headerLabel?.trim() || (wasOverwrite ? "overwritten" : "created");
 	return stabilizeBackgroundResets(
 		truncateToWidth(theme.fg("toolOutput", `↳ ${emphasis(theme, actionLabel)}`), width),
 	);
@@ -2420,6 +2468,7 @@ export function renderWriteDiffResult(
 				options.fileExistedBeforeWrite === true,
 				safeWidth,
 				theme,
+				options.headerLabel,
 			);
 			if (overwriteGuard) {
 				cachedLines = clampDiffLinesToWidth(

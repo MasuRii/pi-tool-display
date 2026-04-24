@@ -17,6 +17,7 @@ interface RegisteredToolLike {
 	name: string;
 	description: string;
 	parameters: unknown;
+	renderShell?: "default" | "self";
 	promptSnippet?: string;
 	promptGuidelines?: string[];
 }
@@ -99,4 +100,13 @@ test("registerToolDisplayOverrides clones built-in parameter schemas so Pi TUI k
 		);
 		assert.deepEqual(registeredTool.parameters, builtInTool.parameters);
 	}
+});
+
+test("registerToolDisplayOverrides forces edit into the default render shell so tool backgrounds fill the full row", () => {
+	const { api, registeredTools } = createExtensionApiStub();
+
+	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
+
+	const byName = new Map(registeredTools.map((tool) => [tool.name, tool]));
+	assert.equal(byName.get("edit")?.renderShell, "default");
 });

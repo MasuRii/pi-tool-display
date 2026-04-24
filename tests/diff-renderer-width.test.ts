@@ -24,9 +24,9 @@ interface RgbColor {
 
 const ADDITION_TINT_TARGET: RgbColor = { r: 84, g: 190, b: 118 };
 const DELETION_TINT_TARGET: RgbColor = { r: 232, g: 95, b: 122 };
-const ADD_ROW_BACKGROUND_MIX_RATIO = 0.24;
+const ADD_ROW_BACKGROUND_MIX_RATIO = 0.12;
 const REMOVE_ROW_BACKGROUND_MIX_RATIO = 0.12;
-const ADD_INLINE_EMPHASIS_MIX_RATIO = 0.44;
+const ADD_INLINE_EMPHASIS_MIX_RATIO = 0.26;
 
 function mixRgb(base: RgbColor, tint: RgbColor, ratio: number): RgbColor {
 	const clamped = Math.max(0, Math.min(1, ratio));
@@ -61,6 +61,13 @@ function renderInsideToolBox(component: Component, width: number): string[] {
 	return box.render(width);
 }
 
+function renderInsideThemedToolBox(component: Component, width: number, background: RgbColor): string[] {
+	const backgroundAnsi = rgbToBgAnsi(background);
+	const box = new Box(1, 1, (text: string) => `${backgroundAnsi}${text}\x1b[0m`);
+	box.addChild(component);
+	return box.render(width);
+}
+
 function assertLinesFitWidth(lines: string[], width: number): void {
 	for (const line of lines) {
 		assert.ok(
@@ -73,6 +80,33 @@ function assertLinesFitWidth(lines: string[], width: number): void {
 interface VisibleBackgroundCell {
 	char: string;
 	background: string | null;
+}
+
+function isFiniteSgrParam(value: number | undefined): value is number {
+	return typeof value === "number" && Number.isFinite(value);
+}
+
+function readSgrBackgroundSequence(params: number[], index: number): string | undefined {
+	if (params[index] !== 48) {
+		return undefined;
+	}
+
+	const colorMode = params[index + 1];
+	if (colorMode === 5) {
+		const colorValue = params[index + 2];
+		return isFiniteSgrParam(colorValue) ? `\x1b[48;5;${colorValue}m` : undefined;
+	}
+
+	if (colorMode === 2) {
+		const red = params[index + 2];
+		const green = params[index + 3];
+		const blue = params[index + 4];
+		return isFiniteSgrParam(red) && isFiniteSgrParam(green) && isFiniteSgrParam(blue)
+			? `\x1b[48;2;${red};${green};${blue}m`
+			: undefined;
+	}
+
+	return undefined;
 }
 
 function updateBackgroundState(rawParams: string, currentBackground: string | null): string | null {
@@ -96,34 +130,11 @@ function updateBackgroundState(rawParams: string, currentBackground: string | nu
 			nextBackground = `\x1b[${param}m`;
 			continue;
 		}
-		if (param !== 48) {
-			continue;
-		}
 
-		const colorMode = params[index + 1];
-		if (colorMode === 5) {
-			const colorValue = params[index + 2];
-			if (typeof colorValue === "number" && Number.isFinite(colorValue)) {
-				nextBackground = `\x1b[48;5;${colorValue}m`;
-				index += 2;
-			}
-			continue;
-		}
-		if (colorMode === 2) {
-			const red = params[index + 2];
-			const green = params[index + 3];
-			const blue = params[index + 4];
-			if (
-				typeof red === "number"
-				&& typeof green === "number"
-				&& typeof blue === "number"
-				&& Number.isFinite(red)
-				&& Number.isFinite(green)
-				&& Number.isFinite(blue)
-			) {
-				nextBackground = `\x1b[48;2;${red};${green};${blue}m`;
-				index += 4;
-			}
+		const backgroundSequence = readSgrBackgroundSequence(params, index);
+		if (backgroundSequence) {
+			nextBackground = backgroundSequence;
+			index += backgroundSequence.includes("48;5;") ? 2 : 4;
 		}
 	}
 
@@ -148,6 +159,15 @@ function collectVisibleBackgrounds(text: string): VisibleBackgroundCell[] {
 	}
 
 	return cells;
+}
+
+function assertEveryVisibleCellHasBackground(line: string, label: string): void {
+	const visibleCells = collectVisibleBackgrounds(line);
+	assert.ok(visibleCells.length > 0, `expected visible cells for ${label}`);
+	assert.ok(
+		visibleCells.every((cell) => cell.background !== null),
+		`${label} leaked terminal background: ${JSON.stringify(line)}`,
+	);
 }
 
 test("diff presentation mode progressively degrades for narrow widths", () => {
@@ -220,6 +240,109 @@ test("write overwrite diff renderer falls back when the overwrite matrix would b
 	const lines = renderInsideToolBox(component, 80);
 	assertLinesFitWidth(lines, 80);
 	assert.match(lines.join("\n"), /overwrite diff omitted/i);
+});
+
+test("split diff renderer preserves full background coverage inside the default tool shell", () => {
+	const baseBg = { r: 10, g: 20, b: 30 };
+	const addFg = { r: 100, g: 150, b: 200 };
+	const removeFg = { r: 200, g: 100, b: 120 };
+	const splitDiffConfig = { ...diffConfig, diffViewMode: "split" };
+	const ansiTheme = {
+		fg: (_color: string, text: string): string => `\x1b[38;2;1;2;3m${text}\x1b[0m`,
+		bold: (text: string): string => text,
+		getFgAnsi: (slot: string): string | undefined => {
+			if (slot === "toolDiffAdded") {
+				return `\x1b[38;2;${addFg.r};${addFg.g};${addFg.b}m`;
+			}
+			if (slot === "toolDiffRemoved") {
+				return `\x1b[38;2;${removeFg.r};${removeFg.g};${removeFg.b}m`;
+			}
+			if (slot === "dim") {
+				return "\x1b[38;5;8m";
+			}
+			return undefined;
+		},
+		getBgAnsi: (slot: string): string | undefined => {
+			if (slot === "toolSuccessBg") {
+				return `\x1b[48;2;${baseBg.r};${baseBg.g};${baseBg.b}m`;
+			}
+			return undefined;
+		},
+	};
+	const component = renderEditDiffResult(
+		{
+			diff: "--- a/demo.txt\n+++ b/demo.txt\n@@ -1,2 +1,3 @@\n same value\n-old value\n+new value\n+another line\n",
+		},
+		{ expanded: true, filePath: "demo.txt" },
+		splitDiffConfig as any,
+		ansiTheme,
+		"",
+	);
+
+	const lines = renderInsideThemedToolBox(component, 120, baseBg);
+	assertLinesFitWidth(lines, 120);
+
+	const summaryLine = lines.find((line) => line.includes("diff") && line.includes("+2"));
+	assert.ok(summaryLine, `expected split diff summary line:\n${lines.join("\n")}`);
+	assertEveryVisibleCellHasBackground(summaryLine, "split diff summary line");
+
+	const headerLine = lines.find((line) => line.includes("old") && line.includes("new"));
+	assert.ok(headerLine, `expected split diff header line:\n${lines.join("\n")}`);
+	assertEveryVisibleCellHasBackground(headerLine, "split diff header line");
+
+	const contextLine = lines.find((line) => line.includes("same value"));
+	assert.ok(contextLine, `expected split diff context line:\n${lines.join("\n")}`);
+	assertEveryVisibleCellHasBackground(contextLine, "split diff context line");
+
+	const blankCompanionLine = lines.find((line) => line.includes("another line"));
+	assert.ok(blankCompanionLine, `expected split diff blank companion line:\n${lines.join("\n")}`);
+	assertEveryVisibleCellHasBackground(blankCompanionLine, "split diff blank companion line");
+});
+
+test("split diff falls back to theme.bg when the default tool shell provides the outer background", () => {
+	const baseBg = { r: 16, g: 24, b: 32 };
+	const addFg = { r: 90, g: 180, b: 120 };
+	const removeFg = { r: 210, g: 120, b: 140 };
+	const component = renderEditDiffResult(
+		{
+			diff: "--- a/demo.txt\n+++ b/demo.txt\n@@ -1,2 +1,3 @@\n same value\n-old value\n+new value\n+another line\n",
+		},
+		{ expanded: true, filePath: "demo.txt" },
+		{ ...diffConfig, diffViewMode: "split" } as any,
+		{
+			fg: (_color: string, text: string): string => `\x1b[38;2;1;2;3m${text}\x1b[0m`,
+			bg: (slot: string, text: string): string => {
+				if (slot === "toolSuccessBg") {
+					return `\x1b[48;2;${baseBg.r};${baseBg.g};${baseBg.b}m${text}\x1b[0m`;
+				}
+				return text;
+			},
+			bold: (text: string): string => text,
+			getFgAnsi: (slot: string): string | undefined => {
+				if (slot === "toolDiffAdded") {
+					return `\x1b[38;2;${addFg.r};${addFg.g};${addFg.b}m`;
+				}
+				if (slot === "toolDiffRemoved") {
+					return `\x1b[38;2;${removeFg.r};${removeFg.g};${removeFg.b}m`;
+				}
+				if (slot === "dim") {
+					return "\x1b[38;5;8m";
+				}
+				return undefined;
+			},
+		},
+		"",
+	);
+
+	const lines = renderInsideThemedToolBox(component, 120, baseBg);
+	assertLinesFitWidth(lines, 120);
+
+	for (const [index, line] of lines.entries()) {
+		if (visibleWidth(line) === 0) {
+			continue;
+		}
+		assertEveryVisibleCellHasBackground(line, `theme.bg fallback line ${index}`);
+	}
 });
 
 test("row backgrounds keep trailing padding painted to the rendered width", () => {
