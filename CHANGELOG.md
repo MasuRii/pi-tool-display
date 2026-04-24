@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-04-24
+
+### Added
+- Added projected pending diff previews for partial `edit` and `write` tool calls so the TUI can show `pending edit`, `pending overwrite`, and `pending create` diffs before execution finishes
+- Added preview fallback notices when projected edit previews cannot be resolved deterministically from the current file contents
+
+### Changed
+- Updated `@mariozechner/pi-coding-agent` and `@mariozechner/pi-tui` peer dependencies to `^0.70.2`
+- Diff renderer write headers now support contextual action labels so pending previews can display `pending edit`, `pending overwrite`, and `pending create`
+
+### Fixed
+- Restored native user message box spacing on recent Pi releases by extracting markdown through the newer nested `Box` wrapper and stripping OSC 133 prompt markers from fallback content normalization
+- Limited fallback OSC stripping to OSC 133 prompt markers so OSC 8 hyperlinks and other non-prompt OSC sequences remain intact in user message rendering
+
 ## [0.3.2] - 2026-04-15
 
 ### Added
@@ -15,15 +29,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Updated `@mariozechner/pi-coding-agent` and `@mariozechner/pi-tui` peer dependencies to `^0.67.2`
-- Config path resolution now uses `getAgentDir()` API to correctly respect `PI_CODING_AGENT_DIR` environment variable
+- Config path resolution now uses `getAgentDir()` API to correctly respect `PI_CODING_AGENT_DIR` environment variable (thanks to @tynanbe for PR #6)
 - Diff renderer now supports mode-aware indicator glyph resolution (bars, classic, none)
 - Line prefix width calculations adjusted per indicator mode for accurate diff column alignment
 - Removed unused `session_switch` listener from native user message box registration
-- Added top margin line to native user message box rendering
+- Added top margin line to native user message box rendering (thanks to @w-winter for the suggestion)
+- Rebalanced diff row and inline emphasis background mixing for more consistent added/removed line readability
 
 ### Fixed
 - Diff indicator markers now render correctly across all indicator modes with proper continuation handling
 - Classic mode now shows +/- only on first visual row, with spacing on wrapped continuation lines
+- Corrected ANSI background reset detection so RGB color sequences containing component value `49` no longer break inline diff emphasis background rendering (thanks to @michaelrommel for reporting issue #8)
 
 ## [0.3.1] - 2026-04-01
 
