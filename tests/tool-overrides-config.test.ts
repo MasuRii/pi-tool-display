@@ -164,23 +164,44 @@ test("current local-style config keeps read/search/MCP output modes distinct", a
 
 	assert.equal(
 		renderToolResult(registeredTools.find((tool) => tool.name === "read"), "alpha\nbeta\n"),
-		"↳ loaded 2 lines",
+		"↳ loaded 2 lines • Ctrl+O to expand",
 	);
 	assert.equal(
 		renderToolResult(registeredTools.find((tool) => tool.name === "grep"), "a.txt:1\nb.txt:2\n"),
-		"↳ 2 matches returned",
+		"↳ 2 matches returned • Ctrl+O to expand",
 	);
 	assert.equal(
 		renderToolResult(registeredTools.find((tool) => tool.name === "find"), "a.txt\nb.txt\n"),
-		"↳ 2 results returned",
+		"↳ 2 results returned • Ctrl+O to expand",
 	);
 	assert.equal(
 		renderToolResult(registeredTools.find((tool) => tool.name === "ls"), "a.txt\nb.txt\n"),
-		"↳ 2 entries returned",
+		"↳ 2 entries returned • Ctrl+O to expand",
 	);
 	assert.equal(
 		renderToolResult(registeredTools.find((tool) => tool.name === "mcp"), "one\ntwo\n"),
-		"↳ 2 lines returned",
+		"↳ 2 lines returned • Ctrl+O to expand",
+	);
+	assert.equal(
+		renderToolResult(registeredTools.find((tool) => tool.name === "read"), {
+			text: "alpha\nbeta\n",
+			expanded: true,
+		}),
+		"alpha\nbeta",
+	);
+	assert.equal(
+		renderToolResult(registeredTools.find((tool) => tool.name === "grep"), {
+			text: "a.txt:1\nb.txt:2\n",
+			expanded: true,
+		}),
+		"a.txt:1\nb.txt:2",
+	);
+	assert.equal(
+		renderToolResult(registeredTools.find((tool) => tool.name === "mcp"), {
+			text: "one\ntwo\n",
+			expanded: true,
+		}),
+		"one\ntwo",
 	);
 });
 
@@ -247,7 +268,7 @@ test("read-only ownership keeps summary line counts confined to read", () => {
 	);
 	assert.equal(
 		renderToolResult(registeredTools[0], "single line\n"),
-		"↳ loaded 1 line",
+		"↳ loaded 1 line • Ctrl+O to expand",
 	);
 });
 
@@ -277,21 +298,21 @@ test("showTruncationHints=false suppresses backend truncation summaries across r
 			text: "alpha\n",
 			details: { truncation: { truncated: true } },
 		}),
-		"↳ loaded 1 line",
+		"↳ loaded 1 line • Ctrl+O to expand",
 	);
 	assert.equal(
 		renderToolResult(registeredTools.find((tool) => tool.name === "grep"), {
 			text: "a.txt:1\n",
 			details: { truncation: { truncated: true } },
 		}),
-		"↳ 1 match returned",
+		"↳ 1 match returned • Ctrl+O to expand",
 	);
 	assert.equal(
 		renderToolResult(registeredTools.find((tool) => tool.name === "mcp"), {
 			text: "alpha\n",
 			details: { truncation: { truncated: true } },
 		}),
-		"↳ 1 line returned",
+		"↳ 1 line returned • Ctrl+O to expand",
 	);
 });
 
@@ -422,7 +443,14 @@ test("bash output modes stay distinct across opencode, summary, and preview", ()
 	registerToolDisplayOverrides(summaryStub.api, () => summaryConfig);
 	assert.equal(
 		renderToolResult(summaryStub.registeredTools.find((tool) => tool.name === "bash"), output),
-		"↳ 3 lines returned",
+		"↳ 3 lines returned • Ctrl+O to expand",
+	);
+	assert.equal(
+		renderToolResult(summaryStub.registeredTools.find((tool) => tool.name === "bash"), {
+			text: output,
+			expanded: true,
+		}),
+		"alpha\nbeta\ngamma",
 	);
 
 	const previewConfig = buildConfig({

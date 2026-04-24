@@ -195,6 +195,10 @@ function captureExistingWriteContent(
   }
 }
 
+function formatExpandHint(theme: RenderTheme): string {
+  return theme.fg("muted", " • Ctrl+O to expand");
+}
+
 function buildPreviewText(
   lines: string[],
   maxLines: number,
@@ -761,6 +765,17 @@ function renderSearchResult(
   }
 
   if (config.searchOutputMode === "count") {
+    if (options.expanded) {
+      const maxLines = getExpandedPreviewLineLimit(lines, config);
+      let preview = buildPreviewText(lines, maxLines, theme, true);
+      if (config.showTruncationHints && details?.truncation?.truncated) {
+        preview += `\n${theme.fg("warning", "(truncated by backend limits)")}`;
+      }
+      preview += formatRtkPreviewHint(details, config, theme);
+      preview += formatExpandedPreviewCapHint(lines, config, theme);
+      return new Text(preview, 0, 0);
+    }
+
     let summary = formatSearchSummary(
       lines,
       unitLabel,
@@ -769,6 +784,7 @@ function renderSearchResult(
       config.showTruncationHints,
       pluralLabel,
     );
+    summary += formatExpandHint(theme);
     summary += formatRtkSummarySuffix(details, config, theme);
     return new Text(summary, 0, 0);
   }
@@ -878,11 +894,33 @@ function renderMcpResult(
   const truncation = getMcpTruncationDetails(result.details);
 
   if (config.mcpOutputMode === "summary") {
+    if (options.expanded) {
+      const maxLines = getExpandedPreviewLineLimit(lines, config);
+      let preview = buildPreviewText(lines, maxLines, theme, true);
+      if (
+        config.showTruncationHints &&
+        (truncation.truncated || truncation.fullOutputPath)
+      ) {
+        const hints: string[] = [];
+        if (truncation.truncated) {
+          hints.push("truncated by backend limits");
+        }
+        if (truncation.fullOutputPath) {
+          hints.push(`full output: ${truncation.fullOutputPath}`);
+        }
+        preview += `\n${theme.fg("warning", `(${hints.join(" • ")})`)}`;
+      }
+      preview += formatRtkPreviewHint(result.details, config, theme);
+      preview += formatExpandedPreviewCapHint(lines, config, theme);
+      return new Text(preview, 0, 0);
+    }
+
     const lineCount = countNonEmptyLines(lines);
     let summary = theme.fg(
       "muted",
       `↳ ${lineCount} ${pluralize(lineCount, "line")} returned`,
     );
+    summary += formatExpandHint(theme);
     if (config.showTruncationHints && truncation.truncated) {
       summary += theme.fg("warning", " • truncated");
     }
@@ -995,6 +1033,17 @@ export function registerToolDisplayOverrides(
         const lines = prepareOutputLines(rawOutput, options);
 
         if (config.readOutputMode === "summary") {
+          if (options.expanded) {
+            const maxLines = getExpandedPreviewLineLimit(lines, config);
+            let preview = buildPreviewText(lines, maxLines, theme, true);
+            if (config.showTruncationHints && details?.truncation?.truncated) {
+              preview += `\n${theme.fg("warning", "(truncated by backend limits)")}`;
+            }
+            preview += formatRtkPreviewHint(result.details, config, theme);
+            preview += formatExpandedPreviewCapHint(lines, config, theme);
+            return new Text(preview, 0, 0);
+          }
+
           const summaryLines = compactOutputLines(splitLines(rawOutput), {
             expanded: true,
           });
@@ -1004,6 +1053,7 @@ export function registerToolDisplayOverrides(
             theme,
             config.showTruncationHints,
           );
+          summary += formatExpandHint(theme);
           summary += formatRtkSummarySuffix(result.details, config, theme);
           return new Text(summary, 0, 0);
         }
@@ -1332,12 +1382,23 @@ export function registerToolDisplayOverrides(
       }
 
       if (config.bashOutputMode === "summary") {
+        if (options.expanded) {
+          const maxLines = getExpandedPreviewLineLimit(lines, config);
+          let preview = buildPreviewText(lines, maxLines, theme, true);
+          if (config.showTruncationHints) {
+            preview += formatBashTruncationHints(details, theme);
+          }
+          preview += formatExpandedPreviewCapHint(lines, config, theme);
+          return new Text(preview, 0, 0);
+        }
+
         let summary = formatBashSummary(
           lines,
           details,
           theme,
           config.showTruncationHints,
         );
+        summary += formatExpandHint(theme);
         if (config.showTruncationHints) {
           summary += formatBashTruncationHints(details, theme);
         }
