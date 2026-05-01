@@ -19,6 +19,8 @@ interface RenderCallContextLike {
 	invalidate(): void;
 	executionStarted: boolean;
 	isPartial: boolean;
+	argsComplete?: boolean;
+	expanded?: boolean;
 }
 
 interface RegisteredToolLike {
@@ -76,6 +78,10 @@ function createTheme(): RenderThemeLike {
 	};
 }
 
+function stripAnsi(text: string): string {
+	return text.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
 function normalizeRenderedText(component: RenderComponentLike): string {
 	return component
 		.render(120)
@@ -113,7 +119,7 @@ function renderToolResult(
 
 function renderToolCall(
 	tool: RegisteredToolLike | undefined,
-	args: { command: string; timeout?: number },
+	args: unknown,
 	contextOverrides: Partial<RenderCallContextLike> = {},
 ): { output: string; component: RenderComponentLike; context: RenderCallContextLike } {
 	assert.ok(tool?.renderCall, `expected renderCall for tool '${tool?.name ?? "unknown"}'`);
@@ -123,6 +129,8 @@ function renderToolCall(
 		invalidate: contextOverrides.invalidate ?? (() => {}),
 		executionStarted: contextOverrides.executionStarted ?? false,
 		isPartial: contextOverrides.isPartial ?? false,
+		argsComplete: contextOverrides.argsComplete ?? false,
+		expanded: contextOverrides.expanded ?? false,
 	};
 	const component = tool.renderCall(args, createTheme(), context);
 	return {
@@ -436,6 +444,67 @@ test("bash output modes stay distinct across opencode, summary, and preview", ()
 		renderToolResult(previewStub.registeredTools.find((tool) => tool.name === "bash"), output),
 		"alpha\nbeta\n... (1 more line • Ctrl+O to expand)",
 	);
+});
+
+test("edit render call previews completed oldText/newText diffs", () => {
+	const config = buildConfig({});
+	const { api, registeredTools } = createExtensionApiStub();
+	registerToolDisplayOverrides(api, () => config);
+
+	const editTool = registeredTools.find((tool) => tool.name === "edit");
+	const rendered = renderToolCall(
+		editTool,
+		{
+			path: "demo.ts",
+			oldText: "const value = 1;",
+			newText: "const value = 2;",
+		},
+		{ argsComplete: true },
+	).output;
+
+	assert.match(rendered, /edit demo\.ts/);
+	assert.match(rendered, /preview/);
+	assert.match(rendered, /const value =/);
+});
+
+test("edit render call previews deletion edits", () => {
+	const { api, registeredTools } = createExtensionApiStub();
+	registerToolDisplayOverrides(api, () => buildConfig({}));
+
+	const editTool = registeredTools.find((tool) => tool.name === "edit");
+	const rendered = renderToolCall(
+		editTool,
+		{
+			path: "demo.ts",
+			oldText: "const removeMe = true;",
+			newText: "",
+		},
+		{ argsComplete: true },
+	).output;
+
+	assert.match(rendered, /preview/);
+	assert.match(rendered, /removeMe/);
+});
+
+test("edit render call previews final-newline-only changes", () => {
+	const { api, registeredTools } = createExtensionApiStub();
+	registerToolDisplayOverrides(api, () => buildConfig({}));
+
+	const editTool = registeredTools.find((tool) => tool.name === "edit");
+	const { component } = renderToolCall(
+		editTool,
+		{
+			path: "demo.txt",
+			oldText: "foo",
+			newText: "foo\n",
+		},
+		{ argsComplete: true, expanded: true },
+	);
+	const rendered = component.render(100).map(stripAnsi).join("\n");
+
+	assert.match(rendered, /preview/);
+	assert.match(rendered, /\b1 │ foo/);
+	assert.match(rendered, /▌\s+2 │\s*(?:\n|$)/);
 });
 
 test("bash call spinner appears only while execution is active", async () => {

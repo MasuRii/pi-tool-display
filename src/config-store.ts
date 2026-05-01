@@ -8,10 +8,12 @@ import {
 	type ConfigLoadResult,
 	type ConfigSaveResult,
 	DIFF_INDICATOR_MODES,
+	DIFF_THEME_PRESETS,
 	DIFF_VIEW_MODES,
 	MCP_OUTPUT_MODES,
 	READ_OUTPUT_MODES,
 	SEARCH_OUTPUT_MODES,
+	type DiffColorOverrides,
 	type ToolDisplayConfig,
 	type ToolOverrideOwnership,
 } from "./types.js";
@@ -85,10 +87,35 @@ function toDiffIndicatorMode(value: unknown): ToolDisplayConfig["diffIndicatorMo
 		: DEFAULT_TOOL_DISPLAY_CONFIG.diffIndicatorMode;
 }
 
+function toDiffThemePreset(value: unknown): ToolDisplayConfig["diffThemePreset"] {
+	return DIFF_THEME_PRESETS.includes(value as ToolDisplayConfig["diffThemePreset"])
+		? (value as ToolDisplayConfig["diffThemePreset"])
+		: DEFAULT_TOOL_DISPLAY_CONFIG.diffThemePreset;
+}
+
+function toHexColor(value: unknown): string | undefined {
+	return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value) ? value : undefined;
+}
+
+function toDiffColorOverrides(value: unknown): DiffColorOverrides {
+	const source = toRecord(value);
+	const overrides: DiffColorOverrides = {};
+	const addRowBg = toHexColor(source.addRowBg);
+	const removeRowBg = toHexColor(source.removeRowBg);
+	const addEmphasisBg = toHexColor(source.addEmphasisBg);
+	const removeEmphasisBg = toHexColor(source.removeEmphasisBg);
+	if (addRowBg) overrides.addRowBg = addRowBg;
+	if (removeRowBg) overrides.removeRowBg = removeRowBg;
+	if (addEmphasisBg) overrides.addEmphasisBg = addEmphasisBg;
+	if (removeEmphasisBg) overrides.removeEmphasisBg = removeEmphasisBg;
+	return overrides;
+}
+
 function cloneDefaultConfig(): ToolDisplayConfig {
 	return {
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
 		registerToolOverrides: { ...DEFAULT_TOOL_DISPLAY_CONFIG.registerToolOverrides },
+		diffColors: { ...DEFAULT_TOOL_DISPLAY_CONFIG.diffColors },
 	};
 }
 
@@ -136,6 +163,8 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 		bashCollapsedLines: clampNumber(source.bashCollapsedLines, 0, 80, DEFAULT_TOOL_DISPLAY_CONFIG.bashCollapsedLines),
 		diffViewMode: toDiffViewMode(source.diffViewMode),
 		diffIndicatorMode: toDiffIndicatorMode(source.diffIndicatorMode),
+		diffThemePreset: toDiffThemePreset(source.diffThemePreset),
+		diffColors: toDiffColorOverrides(source.diffColors),
 		diffSplitMinWidth: clampNumber(source.diffSplitMinWidth, 70, 240, DEFAULT_TOOL_DISPLAY_CONFIG.diffSplitMinWidth),
 		diffCollapsedLines: clampNumber(source.diffCollapsedLines, 4, 240, DEFAULT_TOOL_DISPLAY_CONFIG.diffCollapsedLines),
 		diffWordWrap: toBoolean(source.diffWordWrap, DEFAULT_TOOL_DISPLAY_CONFIG.diffWordWrap),

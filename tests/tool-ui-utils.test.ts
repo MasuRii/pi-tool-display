@@ -27,6 +27,7 @@ import {
   buildCollapsedDiffHintText,
   clampRenderedLineToWidth,
 } from "../src/line-width-safety.ts";
+import { getCachedShikiHighlightBlock } from "../src/shiki-highlight.ts";
 
 const codePointWidthOps = {
   measure: (text: string): number => [...text].length,
@@ -300,6 +301,40 @@ test("collapsed diff hint keeps full guidance when width allows", () => {
   );
 
   assert.equal(hint, "… (12 more diff lines • 2 more hunks • Ctrl+O to expand)");
+});
+
+test("Shiki highlight cache falls back to plain lines for unsupported languages", async () => {
+  let ready = false;
+  const code = "plain fallback line";
+  const first = getCachedShikiHighlightBlock(code, "not-a-real-language-for-test", () => {
+    ready = true;
+  });
+
+  assert.equal(first, undefined);
+  for (let attempt = 0; attempt < 20 && !ready; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  assert.equal(ready, true);
+  assert.deepEqual(getCachedShikiHighlightBlock(code, "not-a-real-language-for-test"), [code]);
+});
+
+test("Shiki pending highlight callbacks are deduplicated per cache key", async () => {
+  let readyCount = 0;
+  const code = "plain fallback line for callback dedupe";
+  const onReady = (): void => {
+    readyCount++;
+  };
+
+  for (let index = 0; index < 20; index++) {
+    assert.equal(getCachedShikiHighlightBlock(code, "not-a-real-language-for-dedupe-test", onReady), undefined);
+  }
+  for (let attempt = 0; attempt < 20 && readyCount === 0; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  assert.equal(readyCount, 1);
+  assert.deepEqual(getCachedShikiHighlightBlock(code, "not-a-real-language-for-dedupe-test"), [code]);
 });
 
 test("line width clamp never returns text wider than the requested width", () => {

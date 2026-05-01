@@ -68,5 +68,8 @@
   },
   "overrides": {
     "file-type": ">=21.3.1"
+  },
+  "dependencies": {
+    "@shikijs/cli": "^4.0.2"
   }
 }

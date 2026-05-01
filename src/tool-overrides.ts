@@ -34,7 +34,7 @@ import {
   shortenPath,
   splitLines,
 } from "./render-utils.js";
-import { renderEditDiffResult, renderWriteDiffResult } from "./diff-renderer.js";
+import { renderEditDiffResult, renderEditPreviewDiffResult, renderWriteDiffResult, type EditPreviewOperation } from "./diff-renderer.js";
 import {
   buildPromptSnippetFromDescription,
   extractPromptMetadata,
@@ -65,6 +65,7 @@ interface BuiltInTools {
 }
 
 type ConfigGetter = () => ToolDisplayConfig;
+type RegisteredToolDefinition = Parameters<ExtensionAPI["registerTool"]>[0];
 
 interface RenderTheme {
   fg(color: string, text: string): string;
@@ -84,6 +85,9 @@ interface ToolRenderContextLike {
   toolCallId?: string;
   state?: unknown;
   isError?: boolean;
+  argsComplete?: boolean;
+  expanded?: boolean;
+  invalidate?: () => void;
 }
 
 interface WriteExecutionMeta {
@@ -263,6 +267,22 @@ function getEditLineCount(value: unknown): number {
   return countTextLines(record.newText);
 }
 
+function getEditPreviewOperations(value: unknown): EditPreviewOperation[] {
+  const record = toRecord(value);
+  const edits = Array.isArray(record.edits) ? record.edits : [];
+  if (edits.length > 0) {
+    return edits.flatMap((edit) => {
+      const oldText = getStringField(edit, "oldText");
+      const newText = getStringField(edit, "newText");
+      return oldText !== undefined && newText !== undefined && oldText !== newText ? [{ oldText, newText }] : [];
+    });
+  }
+
+  const oldText = getStringField(record, "oldText");
+  const newText = getStringField(record, "newText");
+  return oldText !== undefined && newText !== undefined && oldText !== newText ? [{ oldText, newText }] : [];
+}
+
 function isToolError(
   result: unknown,
   context?: ToolRenderContextLike,
@@ -290,8 +310,11 @@ function getWriteExecutionMeta(
   const existing = carrier
     ? toRecord(carrier[WRITE_EXECUTION_META_STATE_KEY])
     : undefined;
-  if (existing && Object.keys(existing).length > 0) {
-    return existing as WriteExecutionMeta;
+  if (existing && typeof existing.fileExistedBeforeWrite === "boolean") {
+    return {
+      fileExistedBeforeWrite: existing.fileExistedBeforeWrite,
+      previousContent: typeof existing.previousContent === "string" ? existing.previousContent : undefined,
+    };
   }
 
   if (!context.toolCallId) {
@@ -1065,14 +1088,25 @@ export function registerToolDisplayOverrides(
         onUpdate,
       );
     },
-    renderCall(args, theme) {
+    renderCall(args, theme, context) {
       const path = shortenPath(getToolPathArg(args));
       const lineCount = getEditLineCount(args);
-      return new Text(
-        `${theme.fg("toolTitle", theme.bold("edit"))} ${theme.fg("accent", path || "...")}${formatLineCountSuffix(lineCount, theme)}`,
-        0,
-        0,
-      );
+      const header = `${theme.fg("toolTitle", theme.bold("edit"))} ${theme.fg("accent", path || "...")}${formatLineCountSuffix(lineCount, theme)}`;
+      const operations = context?.argsComplete ? getEditPreviewOperations(args) : [];
+      if (operations.length > 0) {
+        return renderEditPreviewDiffResult(
+          operations,
+          {
+            expanded: context?.expanded ?? false,
+            filePath: getToolPathArg(args),
+            onAsyncHighlightReady: () => context?.invalidate?.(),
+          },
+          getConfig(),
+          theme,
+          header,
+        );
+      }
+      return new Text(header, 0, 0);
     },
     renderResult(result, options, theme, context) {
       const lineCount = getEditLineCount(context?.args);
@@ -1094,7 +1128,11 @@ export function registerToolDisplayOverrides(
       const details = result.details as EditToolDetails | undefined;
       return renderEditDiffResult(
         details,
-        { expanded: options.expanded, filePath: getToolPathArg(context?.args) },
+        {
+          expanded: options.expanded,
+          filePath: getToolPathArg(context?.args),
+          onAsyncHighlightReady: () => context?.invalidate?.(),
+        },
         config,
         theme,
         fallbackText,
@@ -1171,6 +1209,7 @@ export function registerToolDisplayOverrides(
           filePath: getToolPathArg(context?.args),
           previousContent: executionMeta?.previousContent,
           fileExistedBeforeWrite: executionMeta?.fileExistedBeforeWrite ?? false,
+          onAsyncHighlightReady: () => context?.invalidate?.(),
         },
         config,
         theme,
@@ -1338,7 +1377,7 @@ export function registerToolDisplayOverrides(
         renderResult(result, options, theme) {
           return renderMcpResult(result, options, getConfig(), theme);
         },
-      });
+      } as unknown as RegisteredToolDefinition);
 
       wrappedMcpToolNames.add(toolName);
     }

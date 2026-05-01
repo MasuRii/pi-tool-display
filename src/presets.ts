@@ -7,10 +7,12 @@ const TOOL_DISPLAY_PRESET_CONFIGS: Record<ToolDisplayPreset, ToolDisplayConfig> 
 	opencode: {
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
 		registerToolOverrides: { ...DEFAULT_TOOL_DISPLAY_CONFIG.registerToolOverrides },
+		diffColors: { ...DEFAULT_TOOL_DISPLAY_CONFIG.diffColors },
 	},
 	balanced: {
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
 		registerToolOverrides: { ...DEFAULT_TOOL_DISPLAY_CONFIG.registerToolOverrides },
+		diffColors: { ...DEFAULT_TOOL_DISPLAY_CONFIG.diffColors },
 		readOutputMode: "summary",
 		searchOutputMode: "count",
 		mcpOutputMode: "summary",
@@ -19,6 +21,7 @@ const TOOL_DISPLAY_PRESET_CONFIGS: Record<ToolDisplayPreset, ToolDisplayConfig> 
 	verbose: {
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
 		registerToolOverrides: { ...DEFAULT_TOOL_DISPLAY_CONFIG.registerToolOverrides },
+		diffColors: { ...DEFAULT_TOOL_DISPLAY_CONFIG.diffColors },
 		readOutputMode: "preview",
 		searchOutputMode: "preview",
 		mcpOutputMode: "preview",
@@ -40,6 +43,15 @@ function toolOverrideOwnershipEqual(a: ToolDisplayConfig, b: ToolDisplayConfig):
 	);
 }
 
+function diffColorOverridesEqual(a: ToolDisplayConfig, b: ToolDisplayConfig): boolean {
+	return (
+		a.diffColors.addRowBg === b.diffColors.addRowBg &&
+		a.diffColors.removeRowBg === b.diffColors.removeRowBg &&
+		a.diffColors.addEmphasisBg === b.diffColors.addEmphasisBg &&
+		a.diffColors.removeEmphasisBg === b.diffColors.removeEmphasisBg
+	);
+}
+
 function configsEqual(a: ToolDisplayConfig, b: ToolDisplayConfig): boolean {
 	return (
 		toolOverrideOwnershipEqual(a, b) &&
@@ -53,6 +65,8 @@ function configsEqual(a: ToolDisplayConfig, b: ToolDisplayConfig): boolean {
 		a.bashCollapsedLines === b.bashCollapsedLines &&
 		a.diffViewMode === b.diffViewMode &&
 		a.diffIndicatorMode === b.diffIndicatorMode &&
+		a.diffThemePreset === b.diffThemePreset &&
+		diffColorOverridesEqual(a, b) &&
 		a.diffSplitMinWidth === b.diffSplitMinWidth &&
 		a.diffCollapsedLines === b.diffCollapsedLines &&
 		a.diffWordWrap === b.diffWordWrap &&
@@ -66,6 +80,7 @@ export function getToolDisplayPresetConfig(preset: ToolDisplayPreset): ToolDispl
 	return {
 		...config,
 		registerToolOverrides: { ...config.registerToolOverrides },
+		diffColors: { ...config.diffColors },
 	};
 }
 

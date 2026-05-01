@@ -4,6 +4,7 @@ export const MCP_OUTPUT_MODES = ["hidden", "summary", "preview"] as const;
 export const BASH_OUTPUT_MODES = ["opencode", "summary", "preview"] as const;
 export const DIFF_VIEW_MODES = ["auto", "split", "unified"] as const;
 export const DIFF_INDICATOR_MODES = ["bars", "classic", "none"] as const;
+export const DIFF_THEME_PRESETS = ["auto", "default", "midnight", "subtle", "neon"] as const;
 
 export type ReadOutputMode = (typeof READ_OUTPUT_MODES)[number];
 export type SearchOutputMode = (typeof SEARCH_OUTPUT_MODES)[number];
@@ -11,6 +12,14 @@ export type McpOutputMode = (typeof MCP_OUTPUT_MODES)[number];
 export type BashOutputMode = (typeof BASH_OUTPUT_MODES)[number];
 export type DiffViewMode = (typeof DIFF_VIEW_MODES)[number];
 export type DiffIndicatorMode = (typeof DIFF_INDICATOR_MODES)[number];
+export type DiffThemePreset = (typeof DIFF_THEME_PRESETS)[number];
+
+export interface DiffColorOverrides {
+	addRowBg?: string;
+	removeRowBg?: string;
+	addEmphasisBg?: string;
+	removeEmphasisBg?: string;
+}
 
 export const BUILT_IN_TOOL_OVERRIDE_NAMES = [
 	"read",
@@ -46,6 +55,8 @@ export interface ToolDisplayConfig {
 	bashCollapsedLines: number;
 	diffViewMode: DiffViewMode;
 	diffIndicatorMode: DiffIndicatorMode;
+	diffThemePreset: DiffThemePreset;
+	diffColors: DiffColorOverrides;
 	diffSplitMinWidth: number;
 	diffCollapsedLines: number;
 	diffWordWrap: boolean;
@@ -71,8 +82,10 @@ export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 	expandedPreviewMaxLines: 4000,
 	bashOutputMode: "opencode",
 	bashCollapsedLines: 10,
-	diffViewMode: "auto",
+	diffViewMode: "split",
 	diffIndicatorMode: "bars",
+	diffThemePreset: "default",
+	diffColors: {},
 	diffSplitMinWidth: 120,
 	diffCollapsedLines: 24,
 	diffWordWrap: true,

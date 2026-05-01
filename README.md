@@ -16,8 +16,9 @@ OpenCode-style tool rendering for the [Pi coding agent](https://github.com/mario
 
 - **Compact built-in tool rendering** for `read`, `grep`, `find`, `ls`, `bash`, `edit`, and `write`
 - **MCP-aware rendering** with hidden, summary, and preview modes
-- **Adaptive edit/write diffs** with split or unified layouts, syntax highlighting, inline emphasis, and narrow-pane width clamping
+- **Adaptive edit/write diffs** with split or unified layouts, Shiki block syntax highlighting, inline emphasis, and narrow-pane width clamping
 - **Progressive collapsed diff hints** that shorten automatically on small terminal widths instead of overflowing
+- **Edit call previews** that render pending `oldText`/`newText` diffs before the edit executes
 - **Three presets**: `opencode`, `balanced`, and `verbose`
 - **Thinking labels** during streaming and final message rendering, with context sanitization to avoid leaking presentation labels back into future model turns
 - **Optional native user message box** with markdown-aware rendering and safer ANSI/background handling
@@ -127,8 +128,10 @@ A starter template is included at `config/config.example.json`.
 | `expandedPreviewMaxLines` | number | `4000` | Max preview lines when fully expanded |
 | `bashOutputMode` | string | `"opencode"` | `opencode` (collapse), `summary` (line count), or `preview` (show lines) |
 | `bashCollapsedLines` | number | `10` | Lines shown for collapsed bash output (opencode mode) |
-| `diffViewMode` | string | `"auto"` | `auto`, `split`, or `unified` |
+| `diffViewMode` | string | `"split"` | `split` by default; use `auto` for readability fallback or `unified` to disable split diffs |
 | `diffIndicatorMode` | string | `"bars"` | `bars` (vertical indicators), `classic` (+/- markers), or `none` |
+| `diffThemePreset` | string | `"default"` | `default` uses the original `pi-diff` colors; `auto`, `midnight`, `subtle`, and `neon` are also available |
+| `diffColors` | object | `{}` | Optional `#RRGGBB` overrides for `addRowBg`, `removeRowBg`, `addEmphasisBg`, and `removeEmphasisBg` |
 | `diffSplitMinWidth` | number | `120` | Minimum width before auto mode prefers split diffs |
 | `diffCollapsedLines` | number | `24` | Diff lines shown before collapsing |
 | `diffWordWrap` | boolean | `true` | Wrap long diff lines when needed |
@@ -178,8 +181,10 @@ Set any entry to `false` if another extension should handle that tool instead.
   "expandedPreviewMaxLines": 4000,
   "bashOutputMode": "opencode",
   "bashCollapsedLines": 15,
-  "diffViewMode": "auto",
+  "diffViewMode": "split",
   "diffIndicatorMode": "bars",
+  "diffThemePreset": "default",
+  "diffColors": {},
   "diffSplitMinWidth": 120,
   "diffCollapsedLines": 24,
   "diffWordWrap": true,
@@ -192,7 +197,7 @@ Set any entry to `false` if another extension should handle that tool instead.
 
 ### Edit and write diffs
 
-`edit` and `write` results use the same diff renderer. In `auto` mode the extension chooses split or unified layout based on available width. On narrow panes it clamps rendered lines and shortens collapsed hint text so the diff stays readable instead of spilling past the terminal width.
+`edit` and `write` results use the same diff renderer. Split layout and the original `pi-diff` background colors are the defaults; set `diffViewMode` to `auto` to fall back to unified when width or wrap pressure makes side-by-side columns hard to read, or `unified` to disable split diffs. Code is highlighted as Shiki blocks with a small LRU cache, then layered with diff row backgrounds and inline emphasis. On narrow panes it clamps rendered lines and shortens collapsed hint text so the diff stays readable instead of spilling past the terminal width.
 
 ### Write summaries
 

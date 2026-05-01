@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `pi-diff`-style edit/write diff rendering with split layout by default, cached Shiki `github-dark` syntax highlighting, edit-call previews, auto readability fallback, theme presets, and `diffColors` overrides.
+
 ### Fixed
 - Restored native user message box spacing on recent Pi releases by extracting markdown through the newer nested `Box` wrapper and stripping OSC 133 prompt markers from fallback content normalization
 

@@ -6,6 +6,7 @@ import { renderEditDiffResult, renderWriteDiffResult } from "../src/diff-rendere
 
 const diffConfig = {
 	diffViewMode: "auto",
+	diffThemePreset: "auto",
 	diffSplitMinWidth: 80,
 	diffCollapsedLines: 24,
 	diffWordWrap: true,
@@ -278,6 +279,54 @@ test("row backgrounds keep trailing padding painted to the rendered width", () =
 		trailingCells.every((cell) => cell.background === palette.addRowBg),
 		`expected trailing padding to keep the row background active: ${JSON.stringify(trailingCells)}`,
 	);
+});
+
+test("auto split mode falls back to unified when too many sampled rows would wrap", () => {
+	const component = renderEditDiffResult(
+		{
+			diff: [
+				"--- a/demo.txt",
+				"+++ b/demo.txt",
+				"@@ -1,4 +1,4 @@",
+				"-this original line is intentionally long enough to wrap inside split columns at this width",
+				"+this replacement line is intentionally long enough to wrap inside split columns at this width",
+				"-another original line is intentionally long enough to wrap inside split columns at this width",
+				"+another replacement line is intentionally long enough to wrap inside split columns at this width",
+			].join("\n"),
+		},
+		{ expanded: true, filePath: "demo.txt" },
+		{
+			...diffConfig,
+			diffViewMode: "auto",
+			diffSplitMinWidth: 80,
+			diffCollapsedLines: 24,
+		} as any,
+		theme,
+		"",
+	);
+
+	const lines = renderInsideToolBox(component, 120);
+	assertLinesFitWidth(lines, 120);
+	assert.ok(!lines.some((line) => /old.*new/.test(line)), `Expected auto mode to avoid split headers for wrap-heavy diffs.\n${lines.join("\n")}`);
+});
+
+test("diff color overrides replace derived row backgrounds", () => {
+	const component = renderEditDiffResult(
+		{
+			diff: "--- a/demo.txt\n+++ b/demo.txt\n@@ -0,0 +1 @@\n+new value\n",
+		},
+		{ expanded: true, filePath: "demo.txt" },
+		{
+			...diffConfig,
+			diffColors: { addRowBg: "#010203" },
+		} as any,
+		theme,
+		"",
+	);
+
+	const addedLine = component.render(80).find((line) => line.includes("new value"));
+	assert.ok(addedLine, "expected added line to render");
+	assert.ok(addedLine.includes("\x1b[48;2;1;2;3m"), JSON.stringify(addedLine));
 });
 
 test("inline emphasis backgrounds remain visible while row backgrounds still recover after resets", () => {

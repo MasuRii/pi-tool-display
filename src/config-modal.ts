@@ -51,7 +51,7 @@ function summarizeConfig(config: ToolDisplayConfig, capabilities: ToolDisplayCap
 		`expandedMax=${config.expandedPreviewMaxLines}`,
 		`bash=${config.bashOutputMode}`,
 		`bashLines=${config.bashCollapsedLines}`,
-		`diff=${config.diffViewMode}/${config.diffIndicatorMode}@${config.diffSplitMinWidth}`,
+		`diff=${config.diffViewMode}/${config.diffIndicatorMode}/${config.diffThemePreset}@${config.diffSplitMinWidth}`,
 		`diffLines=${config.diffCollapsedLines}`,
 		`diffWrap=${toOnOff(config.diffWordWrap)}`,
 	];
@@ -270,6 +270,29 @@ function buildInspectorSettings(
 			searchTerms: ["diff", "edit", "write", "split", "unified", "auto"],
 		},
 		{
+			id: "diffThemePreset",
+			label: "Diff color theme",
+			currentValue: config.diffThemePreset,
+			values: ["auto", "default", "midnight", "subtle", "neon"],
+			inspectorTitle: "Diff Color Theme",
+			inspectorSummary: [
+				"Controls the background palette used for added, removed, and inline-emphasized diff rows.",
+				"Auto derives subtle tints from the active Pi theme, while named presets provide predictable palettes for different terminal backgrounds.",
+			],
+			inspectorOptions: [
+				"auto — derive backgrounds from the current Pi theme",
+				"default — balanced dark-theme colors",
+				"midnight — subtle colors for pure black terminals",
+				"subtle — barely-there low-noise backgrounds",
+				"neon — stronger contrast for low-contrast displays",
+			],
+			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
+				"Manual JSON tuning exposes diffColors.addRowBg, removeRowBg, addEmphasisBg, and removeEmphasisBg for exact #RRGGBB overrides.",
+			]),
+			inspectorPath: configPath,
+			searchTerms: ["diff", "theme", "color", "background", "midnight", "subtle", "neon"],
+		},
+		{
 			id: "diffIndicatorMode",
 			label: "Diff indicators",
 			currentValue: config.diffIndicatorMode,
@@ -369,6 +392,11 @@ function applySetting(config: ToolDisplayConfig, id: string, value: string): Too
 			return {
 				...config,
 				diffIndicatorMode: value as ToolDisplayConfig["diffIndicatorMode"],
+			};
+		case "diffThemePreset":
+			return {
+				...config,
+				diffThemePreset: value as ToolDisplayConfig["diffThemePreset"],
 			};
 		default:
 			return config;

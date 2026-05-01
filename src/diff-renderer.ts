@@ -1,5 +1,5 @@
 import { Text, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
-import { getLanguageFromPath, highlightCode, type EditToolDetails } from "@mariozechner/pi-coding-agent";
+import { getLanguageFromPath, type EditToolDetails } from "@mariozechner/pi-coding-agent";
 import {
 	buildCollapsedDiffHintText,
 	clampRenderedLineToWidth,
@@ -12,7 +12,8 @@ import {
 	type DiffPresentationMode,
 } from "./diff-presentation.js";
 import { pluralize, sanitizeAnsiForThemedOutput } from "./render-utils.js";
-import { DEFAULT_TOOL_DISPLAY_CONFIG, type DiffIndicatorMode, type ToolDisplayConfig } from "./types.js";
+import { getCachedShikiHighlightBlock } from "./shiki-highlight.js";
+import { DEFAULT_TOOL_DISPLAY_CONFIG, type DiffColorOverrides, type DiffIndicatorMode, type DiffThemePreset, type ToolDisplayConfig } from "./types.js";
 
 interface DiffTheme {
 	fg(color: string, text: string): string;
@@ -92,9 +93,16 @@ interface DiffRenderOptions {
 	filePath?: string;
 	previousContent?: string;
 	fileExistedBeforeWrite?: boolean;
+	writeActionLabel?: string;
+	onAsyncHighlightReady?: () => void;
+	preserveTrailingNewlineChanges?: boolean;
 }
 
-type CodeLineHighlighter = (line: string) => string;
+type DiffHighlightSide = "left" | "right";
+
+interface DiffHighlightProvider {
+	get(entry: DiffLineEntry, side: DiffHighlightSide): string;
+}
 
 const CANONICAL_LINE_PATTERN = /^([+\- ])(\s*\d+)\|(.*)$/;
 const LEGACY_LINE_PATTERN = /^([+\- ])(\s*\d+)\s(.*)$/;
@@ -103,6 +111,8 @@ const SPLIT_SEPARATOR = " │ ";
 const MIN_LINE_NUMBER_WIDTH = 2;
 const MIN_SPLIT_COLUMN_WIDTH = 24;
 const MAX_INLINE_DIFF_LINE_LENGTH = 700;
+const SPLIT_MAX_WRAP_RATIO = 0.2;
+const SPLIT_MAX_WRAP_LINES = 8;
 const ADD_ROW_BACKGROUND_MIX_RATIO = 0.12;
 const REMOVE_ROW_BACKGROUND_MIX_RATIO = 0.12;
 const ADD_INLINE_EMPHASIS_MIX_RATIO = 0.26;
@@ -302,30 +312,61 @@ function resolveLanguageFromPath(rawPath: string | undefined): string | undefine
 	}
 }
 
-function createCodeLineHighlighter(language: string | undefined): CodeLineHighlighter {
-	if (!language) {
-		return (line) => sanitizeAnsiForThemedOutput(line);
-	}
+function createDiffHighlightProvider(
+	entries: ParsedDiffEntry[],
+	language: string | undefined,
+	onReady?: () => void,
+): DiffHighlightProvider {
+	const oldEntries = entries.filter(
+		(entry): entry is DiffLineEntry => entry.kind === "line" && entry.lineKind !== "add",
+	);
+	const newEntries = entries.filter(
+		(entry): entry is DiffLineEntry => entry.kind === "line" && entry.lineKind !== "remove",
+	);
+	const oldCode = oldEntries.map((entry) => normalizeCodeWhitespace(entry.content)).join("\n");
+	const newCode = newEntries.map((entry) => normalizeCodeWhitespace(entry.content)).join("\n");
+	let oldSource: string[] | undefined;
+	let newSource: string[] | undefined;
+	let oldMap: WeakMap<DiffLineEntry, string> | undefined;
+	let newMap: WeakMap<DiffLineEntry, string> | undefined;
 
-	const cache = new Map<string, string>();
-	return (line) => {
-		if (!line) {
-			return line;
+	const rebuildMap = (source: readonly DiffLineEntry[], highlighted: string[]): WeakMap<DiffLineEntry, string> => {
+		const map = new WeakMap<DiffLineEntry, string>();
+		for (const [index, entry] of source.entries()) {
+			map.set(entry, highlighted[index] ?? sanitizeAnsiForThemedOutput(normalizeCodeWhitespace(entry.content)));
 		}
-		const cached = cache.get(line);
-		if (cached !== undefined) {
-			return cached;
+		return map;
+	};
+
+	const getOldMap = (): WeakMap<DiffLineEntry, string> | undefined => {
+		const highlighted = getCachedShikiHighlightBlock(oldCode, language, onReady);
+		if (!highlighted) {
+			return undefined;
 		}
-		try {
-			const highlighted = highlightCode(line, language)[0] ?? line;
-			const sanitized = sanitizeAnsiForThemedOutput(highlighted);
-			cache.set(line, sanitized);
-			return sanitized;
-		} catch {
-			const sanitizedFallback = sanitizeAnsiForThemedOutput(line);
-			cache.set(line, sanitizedFallback);
-			return sanitizedFallback;
+		if (highlighted !== oldSource) {
+			oldSource = highlighted;
+			oldMap = rebuildMap(oldEntries, highlighted);
 		}
+		return oldMap;
+	};
+
+	const getNewMap = (): WeakMap<DiffLineEntry, string> | undefined => {
+		const highlighted = getCachedShikiHighlightBlock(newCode, language, onReady);
+		if (!highlighted) {
+			return undefined;
+		}
+		if (highlighted !== newSource) {
+			newSource = highlighted;
+			newMap = rebuildMap(newEntries, highlighted);
+		}
+		return newMap;
+	};
+
+	return {
+		get(entry, side) {
+			const map = side === "left" ? getOldMap() : getNewMap();
+			return map?.get(entry) ?? sanitizeAnsiForThemedOutput(normalizeCodeWhitespace(entry.content));
+		},
 	};
 }
 
@@ -1057,7 +1098,81 @@ function resolveContainerBackgroundAnsi(theme: DiffTheme): string | undefined {
 		?? readThemeAnsi(theme, "bg", "userMessageBg");
 }
 
-function resolveDiffPalette(theme: DiffTheme): DiffPalette {
+const DIFF_BACKGROUND_PRESETS: Record<Exclude<DiffThemePreset, "auto">, Required<DiffColorOverrides>> = {
+	default: {
+		addRowBg: "#162620",
+		removeRowBg: "#2d1919",
+		addEmphasisBg: "#234b32",
+		removeEmphasisBg: "#502323",
+	},
+	midnight: {
+		addRowBg: "#0d1a12",
+		removeRowBg: "#1a0d0d",
+		addEmphasisBg: "#1a3825",
+		removeEmphasisBg: "#381a1a",
+	},
+	subtle: {
+		addRowBg: "#081008",
+		removeRowBg: "#100808",
+		addEmphasisBg: "#122818",
+		removeEmphasisBg: "#281212",
+	},
+	neon: {
+		addRowBg: "#1a3320",
+		removeRowBg: "#331a16",
+		addEmphasisBg: "#2d5c3a",
+		removeEmphasisBg: "#5c2d2d",
+	},
+};
+
+function hexToRgb(hex: string | undefined): RgbColor | undefined {
+	if (!hex || !/^#[0-9a-fA-F]{6}$/.test(hex)) {
+		return undefined;
+	}
+	return {
+		r: Number.parseInt(hex.slice(1, 3), 16),
+		g: Number.parseInt(hex.slice(3, 5), 16),
+		b: Number.parseInt(hex.slice(5, 7), 16),
+	};
+}
+
+function parsePresetHexColor(hex: string): RgbColor {
+	const color = hexToRgb(hex);
+	if (!color) {
+		throw new Error(`Invalid built-in diff preset color: ${hex}`);
+	}
+	return color;
+}
+
+function applyDiffColorOverrides(palette: DiffPalette, overrides: DiffColorOverrides): DiffPalette {
+	const addRowBg = hexToRgb(overrides.addRowBg);
+	const removeRowBg = hexToRgb(overrides.removeRowBg);
+	const addEmphasisBg = hexToRgb(overrides.addEmphasisBg);
+	const removeEmphasisBg = hexToRgb(overrides.removeEmphasisBg);
+	return {
+		addRowBgAnsi: addRowBg ? rgbToBgAnsi(addRowBg) : palette.addRowBgAnsi,
+		removeRowBgAnsi: removeRowBg ? rgbToBgAnsi(removeRowBg) : palette.removeRowBgAnsi,
+		addEmphasisBgAnsi: addEmphasisBg ? rgbToBgAnsi(addEmphasisBg) : palette.addEmphasisBgAnsi,
+		removeEmphasisBgAnsi: removeEmphasisBg ? rgbToBgAnsi(removeEmphasisBg) : palette.removeEmphasisBgAnsi,
+	};
+}
+
+function resolveDiffPalette(theme: DiffTheme, config: Partial<Pick<ToolDisplayConfig, "diffThemePreset" | "diffColors">>): DiffPalette {
+	const diffThemePreset = config.diffThemePreset ?? DEFAULT_TOOL_DISPLAY_CONFIG.diffThemePreset;
+	const diffColors = config.diffColors ?? DEFAULT_TOOL_DISPLAY_CONFIG.diffColors;
+	if (diffThemePreset !== "auto") {
+		const preset = DIFF_BACKGROUND_PRESETS[diffThemePreset];
+		return applyDiffColorOverrides(
+			{
+				addRowBgAnsi: rgbToBgAnsi(parsePresetHexColor(preset.addRowBg)),
+				removeRowBgAnsi: rgbToBgAnsi(parsePresetHexColor(preset.removeRowBg)),
+				addEmphasisBgAnsi: rgbToBgAnsi(parsePresetHexColor(preset.addEmphasisBg)),
+				removeEmphasisBgAnsi: rgbToBgAnsi(parsePresetHexColor(preset.removeEmphasisBg)),
+			},
+			diffColors,
+		);
+	}
+
 	const baseBg = parseAnsiColorCode(readThemeAnsi(theme, "bg", "toolSuccessBg"))
 		?? parseAnsiColorCode(readThemeAnsi(theme, "bg", "toolPendingBg"))
 		?? parseAnsiColorCode(readThemeAnsi(theme, "bg", "userMessageBg"))
@@ -1067,17 +1182,15 @@ function resolveDiffPalette(theme: DiffTheme): DiffPalette {
 	const addTint = mixRgb(addFg, ADDITION_TINT_TARGET, 0.35);
 	const removeTint = mixRgb(removeFg, DELETION_TINT_TARGET, 0.65);
 
-	const addRowBg = mixRgb(baseBg, addTint, ADD_ROW_BACKGROUND_MIX_RATIO);
-	const removeRowBg = mixRgb(baseBg, removeTint, REMOVE_ROW_BACKGROUND_MIX_RATIO);
-	const addEmphasisBg = mixRgb(baseBg, addTint, ADD_INLINE_EMPHASIS_MIX_RATIO);
-	const removeEmphasisBg = mixRgb(baseBg, removeTint, REMOVE_INLINE_EMPHASIS_MIX_RATIO);
-
-	return {
-		addRowBgAnsi: rgbToBgAnsi(addRowBg),
-		removeRowBgAnsi: rgbToBgAnsi(removeRowBg),
-		addEmphasisBgAnsi: rgbToBgAnsi(addEmphasisBg),
-		removeEmphasisBgAnsi: rgbToBgAnsi(removeEmphasisBg),
-	};
+	return applyDiffColorOverrides(
+		{
+			addRowBgAnsi: rgbToBgAnsi(mixRgb(baseBg, addTint, ADD_ROW_BACKGROUND_MIX_RATIO)),
+			removeRowBgAnsi: rgbToBgAnsi(mixRgb(baseBg, removeTint, REMOVE_ROW_BACKGROUND_MIX_RATIO)),
+			addEmphasisBgAnsi: rgbToBgAnsi(mixRgb(baseBg, addTint, ADD_INLINE_EMPHASIS_MIX_RATIO)),
+			removeEmphasisBgAnsi: rgbToBgAnsi(mixRgb(baseBg, removeTint, REMOVE_INLINE_EMPHASIS_MIX_RATIO)),
+		},
+		diffColors,
+	);
 }
 
 function getLineRowBackground(kind: DiffLineKind, palette: DiffPalette): string | undefined {
@@ -1463,7 +1576,7 @@ function renderUnified(
 	lineNumberWidth: number,
 	inlineHighlights: WeakMap<DiffLineEntry, DiffSpan[]>,
 	palette: DiffPalette,
-	highlightLine: CodeLineHighlighter,
+	highlights: DiffHighlightProvider,
 	containerBgAnsi: string | undefined,
 	wordWrap: boolean,
 	indicatorMode: DiffIndicatorMode,
@@ -1480,7 +1593,7 @@ function renderUnified(
 			? formatLineNumber(entry.newLineNumber, entry.fallbackLineNumber, lineNumberWidth)
 			: formatLineNumber(entry.oldLineNumber, entry.fallbackLineNumber, lineNumberWidth);
 		const codeText = normalizeCodeWhitespace(entry.content);
-		const syntaxHighlighted = highlightLine(codeText);
+		const syntaxHighlighted = highlights.get(entry, entry.lineKind === "remove" ? "left" : "right");
 		const rowBg = getLineRowBackground(entry.lineKind, palette);
 		const emphasisBg = getLineEmphasisBackground(entry.lineKind, palette);
 		const inlineSpans = inlineHighlights.get(entry) ?? [];
@@ -1515,7 +1628,7 @@ function toUnifiedFallbackRows(
 	lineNumberWidth: number,
 	inlineHighlights: WeakMap<DiffLineEntry, DiffSpan[]>,
 	palette: DiffPalette,
-	highlightLine: CodeLineHighlighter,
+	highlights: DiffHighlightProvider,
 	containerBgAnsi: string | undefined,
 	wordWrap: boolean,
 	indicatorMode: DiffIndicatorMode,
@@ -1540,7 +1653,7 @@ function toUnifiedFallbackRows(
 		lineNumberWidth,
 		inlineHighlights,
 		palette,
-		highlightLine,
+		highlights,
 		containerBgAnsi,
 		wordWrap,
 		indicatorMode,
@@ -1553,7 +1666,7 @@ function renderCompact(
 	theme: DiffTheme,
 	inlineHighlights: WeakMap<DiffLineEntry, DiffSpan[]>,
 	palette: DiffPalette,
-	highlightLine: CodeLineHighlighter,
+	highlights: DiffHighlightProvider,
 	containerBgAnsi: string | undefined,
 	wordWrap: boolean,
 	indicatorMode: DiffIndicatorMode,
@@ -1567,7 +1680,7 @@ function renderCompact(
 		}
 
 		const codeText = normalizeCodeWhitespace(entry.content);
-		const syntaxHighlighted = highlightLine(codeText);
+		const syntaxHighlighted = highlights.get(entry, entry.lineKind === "remove" ? "left" : "right");
 		const rowBg = getLineRowBackground(entry.lineKind, palette);
 		const emphasisBg = getLineEmphasisBackground(entry.lineKind, palette);
 		const inlineSpans = inlineHighlights.get(entry) ?? [];
@@ -1618,7 +1731,7 @@ function renderSplitCell(
 	theme: DiffTheme,
 	inlineHighlights: WeakMap<DiffLineEntry, DiffSpan[]>,
 	palette: DiffPalette,
-	highlightLine: CodeLineHighlighter,
+	highlights: DiffHighlightProvider,
 	containerBgAnsi: string | undefined,
 	wordWrap: boolean,
 	indicatorMode: DiffIndicatorMode,
@@ -1631,7 +1744,7 @@ function renderSplitCell(
 	const rowBg = getLineRowBackground(line.lineKind, palette);
 	const emphasisBg = getLineEmphasisBackground(line.lineKind, palette);
 	const codeText = normalizeCodeWhitespace(line.content);
-	const syntaxHighlighted = highlightLine(codeText);
+	const syntaxHighlighted = highlights.get(line, side);
 	const inlineSpans = inlineHighlights.get(line) ?? [];
 	const highlighted = applyInlineSpanHighlight(codeText, syntaxHighlighted, inlineSpans, emphasisBg, rowBg, containerBgAnsi);
 	return renderLineCell(
@@ -1699,6 +1812,45 @@ function canRenderSplitLayout(width: number): boolean {
 	return width >= minimumSplitWidth;
 }
 
+function canRenderReadableSplitLayout(
+	entries: ParsedDiffEntry[],
+	width: number,
+	lineNumberWidth: number,
+	indicatorMode: DiffIndicatorMode,
+	wordWrap: boolean,
+	maxRows: number,
+): boolean {
+	if (!canRenderSplitLayout(width)) {
+		return false;
+	}
+	if (!wordWrap) {
+		return true;
+	}
+
+	const separatorWidth = visibleWidth(SPLIT_SEPARATOR);
+	const columnWidth = Math.max(MIN_SPLIT_COLUMN_WIDTH, Math.floor((width - separatorWidth) / 2));
+	const splitLineNumberWidth = Math.max(3, lineNumberWidth);
+	const prefixWidth = getLinePrefixPlainWidth(splitLineNumberWidth, indicatorMode);
+	const dividerWidth = getLineDividerPlainWidth(indicatorMode);
+	const contentIndicatorWidth = getLineContentIndicatorPrefixPlainWidth(indicatorMode);
+	const codeWidth = Math.max(1, columnWidth - prefixWidth - dividerWidth - contentIndicatorWidth);
+	const sample = entries
+		.filter((entry): entry is DiffLineEntry => entry.kind === "line")
+		.slice(0, Math.max(1, maxRows));
+	if (sample.length === 0) {
+		return true;
+	}
+
+	let wrappingLines = 0;
+	for (const entry of sample) {
+		if (visibleWidth(normalizeCodeWhitespace(entry.content)) > codeWidth) {
+			wrappingLines++;
+		}
+	}
+
+	return wrappingLines < SPLIT_MAX_WRAP_LINES && wrappingLines / sample.length < SPLIT_MAX_WRAP_RATIO;
+}
+
 function renderSplit(
 	rows: SplitDiffRow[],
 	width: number,
@@ -1706,7 +1858,7 @@ function renderSplit(
 	lineNumberWidth: number,
 	inlineHighlights: WeakMap<DiffLineEntry, DiffSpan[]>,
 	palette: DiffPalette,
-	highlightLine: CodeLineHighlighter,
+	highlights: DiffHighlightProvider,
 	containerBgAnsi: string | undefined,
 	wordWrap: boolean,
 	indicatorMode: DiffIndicatorMode,
@@ -1719,7 +1871,7 @@ function renderSplit(
 			lineNumberWidth,
 			inlineHighlights,
 			palette,
-			highlightLine,
+			highlights,
 			containerBgAnsi,
 			wordWrap,
 			indicatorMode,
@@ -1756,7 +1908,7 @@ function renderSplit(
 			theme,
 			inlineHighlights,
 			palette,
-			highlightLine,
+			highlights,
 			containerBgAnsi,
 			wordWrap,
 			indicatorMode,
@@ -1769,7 +1921,7 @@ function renderSplit(
 			theme,
 			inlineHighlights,
 			palette,
-			highlightLine,
+			highlights,
 			containerBgAnsi,
 			wordWrap,
 			indicatorMode,
@@ -2005,10 +2157,9 @@ export function renderEditDiffResult(
 	const splitRows = buildSplitRows(parsed.entries);
 	const inlineHighlights = buildInlineHighlightMap(splitRows);
 	const lineNumberWidth = getLineNumberWidth(parsed.entries);
-	const palette = resolveDiffPalette(theme);
+	const palette = resolveDiffPalette(theme, config);
 	const containerBgAnsi = resolveContainerBackgroundAnsi(theme);
 	const language = resolveLanguageFromPath(options.filePath);
-	const highlightLine = createCodeLineHighlighter(language);
 	const wordWrap = config.diffWordWrap;
 	const indicatorMode = resolveDiffIndicatorMode(config);
 
@@ -2016,11 +2167,32 @@ export function renderEditDiffResult(
 	let cachedExpanded: boolean | undefined;
 	let cachedMode: DiffPresentationMode | undefined;
 	let cachedLines: string[] | undefined;
+	const clearRenderCache = (): void => {
+		cachedWidth = undefined;
+		cachedExpanded = undefined;
+		cachedMode = undefined;
+		cachedLines = undefined;
+	};
+	const notifyAsyncHighlightReady = (): void => {
+		clearRenderCache();
+		options.onAsyncHighlightReady?.();
+	};
+	const highlights = createDiffHighlightProvider(parsed.entries, language, notifyAsyncHighlightReady);
 
 	return {
 		render(width: number): string[] {
 			const safeWidth = normalizeDiffRenderWidth(width);
-			const mode = resolveDiffPresentationMode(config, safeWidth, canRenderSplitLayout(safeWidth));
+			const canRenderSplit = config.diffViewMode === "split"
+				? canRenderSplitLayout(safeWidth)
+				: canRenderReadableSplitLayout(
+					parsed.entries,
+					safeWidth,
+					lineNumberWidth,
+					indicatorMode,
+					wordWrap,
+					config.diffCollapsedLines,
+				);
+			const mode = resolveDiffPresentationMode(config, safeWidth, canRenderSplit);
 			if (
 				cachedLines
 				&& cachedWidth === safeWidth
@@ -2047,7 +2219,7 @@ export function renderEditDiffResult(
 					lineNumberWidth,
 					inlineHighlights,
 					palette,
-					highlightLine,
+					highlights,
 					containerBgAnsi,
 					wordWrap,
 					indicatorMode,
@@ -2059,7 +2231,7 @@ export function renderEditDiffResult(
 						theme,
 						inlineHighlights,
 						palette,
-						highlightLine,
+						highlights,
 						containerBgAnsi,
 						wordWrap,
 						indicatorMode,
@@ -2071,7 +2243,7 @@ export function renderEditDiffResult(
 						lineNumberWidth,
 						inlineHighlights,
 						palette,
-						highlightLine,
+						highlights,
 						containerBgAnsi,
 						wordWrap,
 						indicatorMode,
@@ -2096,22 +2268,19 @@ export function renderEditDiffResult(
 			return cachedLines;
 		},
 		invalidate() {
-			cachedWidth = undefined;
-			cachedExpanded = undefined;
-			cachedMode = undefined;
-			cachedLines = undefined;
+			clearRenderCache();
 		},
 	};
 }
 
-function splitWriteContentLines(content: string): string[] {
+function splitWriteContentLines(content: string, preserveTrailingNewline = false): string[] {
 	if (!content) {
 		return [];
 	}
 
 	const normalized = content.replace(/\r/g, "");
 	const lines = normalized.split("\n");
-	if (lines.length > 0 && lines[lines.length - 1] === "") {
+	if (!preserveTrailingNewline && lines.length > 0 && lines[lines.length - 1] === "") {
 		lines.pop();
 	}
 	return lines;
@@ -2121,8 +2290,9 @@ function renderWriteHeader(
 	wasOverwrite: boolean,
 	width: number,
 	theme: DiffTheme,
+	actionLabelOverride?: string,
 ): string {
-	const actionLabel = wasOverwrite ? "overwritten" : "created";
+	const actionLabel = actionLabelOverride ?? (wasOverwrite ? "overwritten" : "created");
 	return stabilizeBackgroundResets(
 		truncateToWidth(theme.fg("toolOutput", `↳ ${emphasis(theme, actionLabel)}`), width),
 	);
@@ -2257,6 +2427,7 @@ interface WriteDiffData {
 	entries: ParsedDiffEntry[];
 	splitRows: SplitDiffRow[];
 	inlineHighlights: WeakMap<DiffLineEntry, DiffSpan[]>;
+	highlights: DiffHighlightProvider;
 	lineNumberWidth: number;
 	stats: DiffStats;
 	hunkCount: number;
@@ -2288,9 +2459,14 @@ function buildApproximateWriteStats(
 	};
 }
 
-function buildWriteDiffData(entries: ParsedDiffEntry[]): WriteDiffData {
+function buildWriteDiffData(
+	entries: ParsedDiffEntry[],
+	language: string | undefined,
+	onAsyncHighlightReady: (() => void) | undefined,
+): WriteDiffData {
 	const splitRows = buildSplitRows(entries);
 	const inlineHighlights = buildInlineHighlightMap(splitRows);
+	const highlights = createDiffHighlightProvider(entries, language, onAsyncHighlightReady);
 	const lineNumberWidth = getLineNumberWidth(entries);
 	const hunkCount = entries.length > 0 ? 1 : 0;
 	const stats = collectDiffStats(entries, hunkCount, 1);
@@ -2298,6 +2474,7 @@ function buildWriteDiffData(entries: ParsedDiffEntry[]): WriteDiffData {
 		entries,
 		splitRows,
 		inlineHighlights,
+		highlights,
 		lineNumberWidth,
 		stats,
 		hunkCount,
@@ -2373,9 +2550,10 @@ export function renderWriteDiffResult(
 	}
 
 	const filePath = options.filePath?.trim() || "(unknown path)";
-	const lines = splitWriteContentLines(content);
+	const preserveTrailingNewline = options.preserveTrailingNewlineChanges === true;
+	const lines = splitWriteContentLines(content, preserveTrailingNewline);
 	const previousLines = typeof options.previousContent === "string"
-		? splitWriteContentLines(options.previousContent)
+		? splitWriteContentLines(options.previousContent, preserveTrailingNewline)
 		: [];
 	const hasComparablePrevious = options.fileExistedBeforeWrite === true && typeof options.previousContent === "string";
 	const approximateStats = buildApproximateWriteStats(
@@ -2386,10 +2564,9 @@ export function renderWriteDiffResult(
 	const overwriteGuard = hasComparablePrevious
 		? resolveWriteOverwriteGuard(previousLines, lines)
 		: undefined;
-	const palette = resolveDiffPalette(theme);
+	const palette = resolveDiffPalette(theme, config);
 	const containerBgAnsi = resolveContainerBackgroundAnsi(theme);
 	const language = resolveLanguageFromPath(filePath);
-	const highlightLine = createCodeLineHighlighter(language);
 	const wordWrap = config.diffWordWrap;
 	const indicatorMode = resolveDiffIndicatorMode(config);
 
@@ -2398,6 +2575,16 @@ export function renderWriteDiffResult(
 	let cachedExpanded: boolean | undefined;
 	let cachedMode: DiffPresentationMode | undefined;
 	let cachedLines: string[] | undefined;
+	const clearRenderCache = (): void => {
+		cachedWidth = undefined;
+		cachedExpanded = undefined;
+		cachedMode = undefined;
+		cachedLines = undefined;
+	};
+	const notifyAsyncHighlightReady = (): void => {
+		clearRenderCache();
+		options.onAsyncHighlightReady?.();
+	};
 
 	function getDetailedData(): WriteDiffData {
 		if (detailedData) {
@@ -2406,14 +2593,27 @@ export function renderWriteDiffResult(
 		const entries = hasComparablePrevious
 			? buildWriteOverwriteEntries(previousLines, lines)
 			: buildWriteEntries(lines);
-		detailedData = buildWriteDiffData(entries);
+		detailedData = buildWriteDiffData(entries, language, notifyAsyncHighlightReady);
 		return detailedData;
 	}
 
 	return {
 		render(width: number): string[] {
 			const safeWidth = normalizeDiffRenderWidth(width);
-			const resolvedMode = resolveDiffPresentationMode(config, safeWidth, canRenderSplitLayout(safeWidth));
+			let dataForMode: WriteDiffData | undefined;
+			let canRenderSplit = canRenderSplitLayout(safeWidth);
+			if (config.diffViewMode !== "split" && hasComparablePrevious && !overwriteGuard) {
+				dataForMode = getDetailedData();
+				canRenderSplit = canRenderReadableSplitLayout(
+					dataForMode.entries,
+					safeWidth,
+					dataForMode.lineNumberWidth,
+					indicatorMode,
+					wordWrap,
+					config.diffCollapsedLines,
+				);
+			}
+			const resolvedMode = resolveDiffPresentationMode(config, safeWidth, canRenderSplit);
 			const mode: DiffPresentationMode = hasComparablePrevious
 				? resolvedMode
 				: resolvedMode === "split"
@@ -2432,6 +2632,7 @@ export function renderWriteDiffResult(
 				options.fileExistedBeforeWrite === true,
 				safeWidth,
 				theme,
+				options.writeActionLabel,
 			);
 			if (overwriteGuard) {
 				cachedLines = clampDiffLinesToWidth(
@@ -2455,7 +2656,7 @@ export function renderWriteDiffResult(
 				return cachedLines;
 			}
 
-			const data = getDetailedData();
+			const data = dataForMode ?? getDetailedData();
 			const bodyRows: RenderedRow[] = data.entries.length === 0
 				? [{ text: theme.fg("muted", "(empty file)"), hunkIndex: null }]
 				: mode === "split"
@@ -2466,7 +2667,7 @@ export function renderWriteDiffResult(
 						data.lineNumberWidth,
 						data.inlineHighlights,
 						palette,
-						highlightLine,
+						data.highlights,
 						containerBgAnsi,
 						wordWrap,
 						indicatorMode,
@@ -2478,7 +2679,7 @@ export function renderWriteDiffResult(
 							theme,
 							data.inlineHighlights,
 							palette,
-							highlightLine,
+							data.highlights,
 							containerBgAnsi,
 							wordWrap,
 							indicatorMode,
@@ -2490,7 +2691,7 @@ export function renderWriteDiffResult(
 							data.lineNumberWidth,
 							data.inlineHighlights,
 							palette,
-							highlightLine,
+							data.highlights,
 							containerBgAnsi,
 							wordWrap,
 							indicatorMode,
@@ -2515,10 +2716,56 @@ export function renderWriteDiffResult(
 			return cachedLines;
 		},
 		invalidate() {
-			cachedWidth = undefined;
-			cachedExpanded = undefined;
-			cachedMode = undefined;
-			cachedLines = undefined;
+			clearRenderCache();
+		},
+	};
+}
+export interface EditPreviewOperation {
+	oldText: string;
+	newText: string;
+}
+
+export function renderEditPreviewDiffResult(
+	operations: readonly EditPreviewOperation[],
+	options: DiffRenderOptions,
+	config: ToolDisplayConfig,
+	theme: DiffTheme,
+	headerText: string,
+): Component {
+	const visibleOperations = operations.slice(0, 3);
+	const diffComponents = visibleOperations.map((operation, index) =>
+		renderWriteDiffResult(
+			operation.newText,
+			{
+				...options,
+				previousContent: operation.oldText,
+				fileExistedBeforeWrite: true,
+				writeActionLabel: operations.length > 1 ? `preview ${index + 1}/${operations.length}` : "preview",
+				preserveTrailingNewlineChanges: true,
+			},
+			config,
+			theme,
+			"",
+		)
+	);
+	const hiddenCount = Math.max(0, operations.length - visibleOperations.length);
+
+	return {
+		render(width: number): string[] {
+			const safeWidth = normalizeDiffRenderWidth(width);
+			const lines = [clampDiffLineToWidth(headerText, safeWidth)];
+			for (const component of diffComponents) {
+				lines.push(...component.render(safeWidth));
+			}
+			if (hiddenCount > 0) {
+				lines.push(clampDiffLineToWidth(theme.fg("muted", `… ${hiddenCount} more edit preview ${pluralize(hiddenCount, "block")}`), safeWidth));
+			}
+			return lines;
+		},
+		invalidate() {
+			for (const component of diffComponents) {
+				component.invalidate();
+			}
 		},
 	};
 }
