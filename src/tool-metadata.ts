@@ -75,6 +75,13 @@ export function isMcpToolCandidate(tool: unknown): boolean {
 		return true;
 	}
 
+	// Detect context-mode tools (ctx_*) as MCP rendering candidates.
+	// These tools are registered by the context-mode MCP server and produce
+	// potentially large output that benefits from collapsed/summary display.
+	if (typeof name === "string" && name.startsWith("ctx_")) {
+		return true;
+	}
+
 	const description = getTextField(tool, "description");
 	return typeof description === "string" && MCP_DESCRIPTION_PATTERN.test(description);
 }

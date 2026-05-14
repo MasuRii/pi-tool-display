@@ -1454,6 +1454,52 @@ export function registerToolDisplayOverrides(
 
   const wrappedMcpToolNames = new Set<string>();
 
+  // ---------------------------------------------------------------------------
+  // Capture full tool definitions (including execute) by intercepting
+  // pi.registerTool calls. Pi's getAllTools() only returns
+  // {name, description, parameters, sourceInfo} without execute/renderCall/
+  // renderResult, which made MCP tool override wrapping silently fail for all
+  // MCP server tools (including context-mode ctx_* tools).
+  //
+  // The interception works because each extension's pi.registerTool stores
+  // the full tool definition before calling refreshTools(). By wrapping our
+  // own pi.registerTool, we capture definitions from any extension that
+  // registers tools after pi-tool-display loads (including MCP adapter tools
+  // registered during session_start lifecycle).
+  // ---------------------------------------------------------------------------
+  const capturedFullDefinitions = new Map<string, RuntimeToolDefinition>();
+
+  const originalRegisterTool = pi.registerTool.bind(pi);
+  pi.registerTool = function (tool: RuntimeToolDefinition): void {
+    if (tool && typeof tool === "object") {
+      const toolName = (tool as Record<string, unknown>).name;
+      if (typeof toolName === "string") {
+        capturedFullDefinitions.set(toolName, tool);
+      }
+    }
+    originalRegisterTool(tool);
+  } as typeof pi.registerTool;
+
+  /**
+   * Resolve a tool candidate from getAllTools() by merging with any captured
+   * full definition. Captured definitions take priority because they include
+   * the execute function.
+   */
+  function resolveFullToolCandidate(
+    candidate: unknown,
+  ): { toolRecord: Record<string, unknown>; toolName: string } | null {
+    const toolName = getTextField(candidate, "name");
+    if (!toolName) return null;
+
+    const captured = capturedFullDefinitions.get(toolName);
+    if (captured) {
+      return { toolRecord: toRecord(captured), toolName };
+    }
+
+    // Fall back to getAllTools() result (works if Pi returns full definitions)
+    return { toolRecord: toRecord(candidate), toolName };
+  }
+
   const registerMcpToolOverrides = (): void => {
     let allTools: unknown[] = [];
     try {
@@ -1468,14 +1514,19 @@ export function registerToolDisplayOverrides(
         continue;
       }
 
-      const toolName = getTextField(candidate, "name");
-      if (!toolName || wrappedMcpToolNames.has(toolName)) {
+      const resolved = resolveFullToolCandidate(candidate);
+      if (!resolved) continue;
+      const { toolRecord, toolName } = resolved;
+
+      if (wrappedMcpToolNames.has(toolName)) {
         continue;
       }
 
-      const toolRecord = toRecord(candidate);
       const executeCandidate = toolRecord.execute;
       if (typeof executeCandidate !== "function") {
+        logToolDisplayDebug(
+          `MCP tool '${toolName}' has no execute function (captured=${capturedFullDefinitions.has(toolName)}), skipping render override.`,
+        );
         continue;
       }
 
@@ -1486,6 +1537,7 @@ export function registerToolDisplayOverrides(
           : undefined;
       const toolLabel =
         getTextField(candidate, "label") ||
+        getTextField(toolRecord, "label") ||
         (toolName === "mcp" ? "MCP Proxy" : `MCP ${toolName}`);
       const toolDescription =
         getTextField(candidate, "description") || "MCP tool";
