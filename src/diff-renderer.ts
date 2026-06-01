@@ -1813,9 +1813,10 @@ function renderSplitHeaderCell(
 		? " ".repeat(getHashlineGutterMarkerWidth(indicatorMode))
 		: indicatorMode === "bars" ? "  " : "";
 	const lineNumberLabel = fitToWidth(label, lineNumberWidth);
-	const divider = hashlineGutter || indicatorMode !== "classic" ? "│ " : " │ ";
-	const prefix = `${theme.fg("dim", markerPad)}${theme.fg("muted", lineNumberLabel)}${theme.fg("dim", divider)}`;
-	const prefixWidth = visibleWidth(`${markerPad}${lineNumberLabel}${divider}`);
+	const lineNumberSpacer = hashlineGutter ? "" : " ";
+	const divider = hashlineGutter || indicatorMode !== "classic" ? "│ " : "│";
+	const prefix = `${theme.fg("dim", markerPad)}${theme.fg("muted", lineNumberLabel)}${theme.fg("dim", lineNumberSpacer)}${theme.fg("dim", divider)}`;
+	const prefixWidth = visibleWidth(`${markerPad}${lineNumberLabel}${lineNumberSpacer}${divider}`);
 	const contentIndicatorWidth = hashlineGutter ? 0 : getLineContentIndicatorPrefixPlainWidth(indicatorMode);
 	const codeWidth = Math.max(0, columnWidth - prefixWidth - contentIndicatorWidth);
 	const contentPad = !hashlineGutter && indicatorMode === "classic" ? "  " : "";
