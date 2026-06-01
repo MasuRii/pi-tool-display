@@ -1,4 +1,5 @@
-import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { resolvePiAgentDir } from "./agent-dir.js";
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { logToolDisplayDebug } from "./debug-logger.js";
@@ -59,7 +60,7 @@ function cachedPathExists(path: string): boolean {
 }
 
 function hasRtkExtensionPath(cwd: string): boolean {
-	const candidates = [join(getAgentDir(), "extensions", "pi-rtk-optimizer"), join(cwd, ".pi", "extensions", "pi-rtk-optimizer")];
+	const candidates = [join(resolvePiAgentDir(), "extensions", "pi-rtk-optimizer"), join(cwd, ".pi", "extensions", "pi-rtk-optimizer")];
 
 	return candidates.some((candidate) => cachedPathExists(candidate));
 }

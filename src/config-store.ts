@@ -1,4 +1,4 @@
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { resolvePiAgentDir } from "./agent-dir.js";
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
@@ -17,7 +17,7 @@ import {
 } from "./types.js";
 import { toRecord } from "./tool-metadata.js";
 
-const CONFIG_DIR = join(getAgentDir(), "extensions", "pi-tool-display");
+const CONFIG_DIR = join(resolvePiAgentDir(), "extensions", "pi-tool-display");
 const CONFIG_FILE = join(CONFIG_DIR, "config.json");
 
 interface LegacyToolDisplayConfigSource extends Partial<ToolDisplayConfig> {
