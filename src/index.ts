@@ -12,7 +12,6 @@ import {
   detectToolDisplayCapabilities,
   type ToolDisplayCapabilities,
 } from "./capabilities.js";
-import { registerToolDisplayCommand } from "./config-modal.js";
 import { registerToolDisplayOverrides } from "./tool-overrides.js";
 import { disposeAll, resetDisposed } from "./disposable.js";
 import { registerThinkingLabeling } from "./thinking-label.js";
@@ -82,8 +81,22 @@ export default function toolDisplayExtension(pi: ExtensionAPI): void {
 
   registerToolDisplayOverrides(pi, getEffectiveConfig);
   registerNativeUserMessageBox(pi, getConfig);
-  registerToolDisplayCommand(pi, { getConfig, setConfig, getCapabilities });
   registerThinkingLabeling(pi);
+
+  pi.registerCommand("tool-display", {
+    description: "Configure tool output rendering (OpenCode-style)",
+    handler: async (args, ctx) => {
+      const { handleToolDisplayArgs, openSettingsModal } = await import("./config-modal.js");
+      if (handleToolDisplayArgs(args, ctx, { getConfig, setConfig, getCapabilities })) {
+        return;
+      }
+      if (!ctx.hasUI) {
+        ctx.ui.notify("/tool-display requires interactive TUI mode.", "warning");
+        return;
+      }
+      await openSettingsModal(ctx, { getConfig, setConfig, getCapabilities });
+    },
+  });
 
   pi.on("session_start", async (_event, ctx) => {
     refreshCapabilities();

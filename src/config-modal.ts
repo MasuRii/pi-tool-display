@@ -1,5 +1,4 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { ZellijModal } from "./zellij-modal.js";
 import type { ToolDisplayCapabilities } from "./capabilities.js";
 import { getToolDisplayConfigPath } from "./config-store.js";
 import {
@@ -10,7 +9,7 @@ import {
 	type ToolDisplayPreset,
 } from "./presets.js";
 import { shortenPath } from "./render-utils.js";
-import { SplitPaneInspectorModal, type InspectorSettingItem } from "./settings-inspector-modal.js";
+import type { InspectorSettingItem } from "./settings-inspector-modal.js";
 import { type ToolDisplayConfig } from "./types.js";
 
 interface ToolDisplayConfigController {
@@ -402,9 +401,14 @@ function resolveResponsiveOverlayOptions(): ModalOverlayOptions {
 	};
 }
 
-async function openSettingsModal(ctx: ExtensionCommandContext, controller: ToolDisplayConfigController): Promise<void> {
+export async function openSettingsModal(ctx: ExtensionCommandContext, controller: ToolDisplayConfigController): Promise<void> {
 	const overlayOptions = resolveResponsiveOverlayOptions();
 	const capabilities = controller.getCapabilities();
+
+	const [{ ZellijModal }, { SplitPaneInspectorModal }] = await Promise.all([
+		import("./zellij-modal.js"),
+		import("./settings-inspector-modal.js"),
+	]);
 
 	await ctx.ui.custom<void>(
 		(tui, theme, _keybindings, done) => {
@@ -448,7 +452,7 @@ async function openSettingsModal(ctx: ExtensionCommandContext, controller: ToolD
 	);
 }
 
-function handleToolDisplayArgs(args: string, ctx: ExtensionCommandContext, controller: ToolDisplayConfigController): boolean {
+export function handleToolDisplayArgs(args: string, ctx: ExtensionCommandContext, controller: ToolDisplayConfigController): boolean {
 	const raw = args.trim();
 	if (!raw) {
 		return false;
