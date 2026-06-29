@@ -90,6 +90,11 @@ test("detectToolDisplayPreset returns 'custom' when config differs by one field"
 	assert.equal(detectToolDisplayPreset(modified), "custom");
 });
 
+test("detectToolDisplayPreset ignores debug because it is diagnostic state", () => {
+	const balanced = getToolDisplayPresetConfig("balanced");
+	assert.equal(detectToolDisplayPreset({ ...balanced, debug: true }), "balanced");
+});
+
 test("detectToolDisplayPreset returns 'custom' when bashCollapsedLines differs", () => {
 	const verbose = getToolDisplayPresetConfig("verbose");
 	const modified = { ...verbose, bashCollapsedLines: verbose.bashCollapsedLines + 5 };

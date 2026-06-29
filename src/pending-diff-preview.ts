@@ -83,15 +83,15 @@ function resolveWorkspaceReadPath(cwd: string, rawPath: string): { resolvedPath:
   const workspacePath = safeRealpath(cwd);
   const resolvedPath = resolvePreviewPath(cwd, rawPath);
 
-  if (!isWithinWorkspace(workspacePath, resolvedPath)) {
-    return {
-      resolvedPath,
-      error: "Preview unavailable because the target path is outside the current workspace.",
-    };
-  }
-
   if (!existsSync(resolvedPath)) {
-    return { resolvedPath };
+    const lexicalPath = resolvePreviewPath(workspacePath, rawPath);
+    if (!isWithinWorkspace(workspacePath, lexicalPath)) {
+      return {
+        resolvedPath,
+        error: "Preview unavailable because the target path is outside the current workspace.",
+      };
+    }
+    return { resolvedPath: lexicalPath };
   }
 
   try {

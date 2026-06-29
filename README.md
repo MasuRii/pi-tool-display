@@ -83,10 +83,14 @@ Advanced options remain in `config.json`.
 
 ```text
 /tool-display show                    # Show the effective config summary
-/tool-display reset                   # Reset to the default opencode preset
-/tool-display preset opencode         # Apply opencode preset
-/tool-display preset balanced         # Apply balanced preset
-/tool-display preset verbose          # Apply verbose preset
+/tool-display reset                   # Reset the current effective scope to opencode
+/tool-display reset --global          # Reset global config
+/tool-display reset --project         # Reset project config (trusted projects only)
+/tool-display preset opencode         # Apply opencode preset to the current effective scope
+/tool-display preset balanced         # Apply balanced preset to the current effective scope
+/tool-display preset verbose          # Apply verbose preset to the current effective scope
+/tool-display preset verbose --global # Apply preset to global config
+/tool-display preset verbose --project # Apply preset to project config (trusted projects only)
 ```
 
 ### Tool display adapter API
@@ -124,11 +128,12 @@ import { decorateToolForDisplay, decorateMcpToolForDisplay } from "pi-tool-displ
 Runtime configuration is stored at:
 
 ```text
-Default global path: ~/.pi/agent/extensions/pi-tool-display/config.json
-Actual global path: $PI_CODING_AGENT_DIR/extensions/pi-tool-display/config.json when PI_CODING_AGENT_DIR is set
+Global default: ~/.pi/agent/extensions/pi-tool-display/config.json
+Global with PI_CODING_AGENT_DIR: $PI_CODING_AGENT_DIR/extensions/pi-tool-display/config.json
+Project override: .pi/extensions/pi-tool-display/config.json
 ```
 
-A starter template is included at `config/config.example.json`.
+Effective configuration is merged as defaults → global config → project config. Project-level config requires Pi 0.79.1 or newer so the extension can verify project trust status; when trust is unavailable or the project is not trusted, project config is ignored with a warning. Project saves store only values that differ from the global config so inherited global settings keep applying. A starter template is included at `config/config.example.json`.
 
 ### Configuration options
 
@@ -268,7 +273,7 @@ Notes:
 
 ### Debug logging
 
-Debug logging is disabled by default. Set `debug` to `true` in the extension root `config.json` only when collecting diagnostics; missing or non-`true` values are treated as `false`. When enabled, diagnostics are appended to `debug/debug.log` under a runtime-created `debug/` directory, and no debug output is written to the terminal.
+Debug logging is disabled by default. Set `debug` to `true` in the global or active project `config.json` only when collecting diagnostics; missing or non-`true` values are treated as `false`. When enabled, diagnostics are appended to `debug/debug.log` next to the active config file, and no debug output is written to the terminal.
 
 ## Rendering notes
 
@@ -321,9 +326,11 @@ Built-in tool overrides (including `bash`) are registered with deferred ownershi
 
 If your settings are not being applied:
 
-1. Check that the global Pi tool-display config exists (default: `~/.pi/agent/extensions/pi-tool-display/config.json`, respects `PI_CODING_AGENT_DIR`)
-2. Make sure the JSON is valid
-3. Run `/tool-display show` to inspect the effective config summary
+1. Check the global Pi tool-display config (default: `~/.pi/agent/extensions/pi-tool-display/config.json`, respects `PI_CODING_AGENT_DIR`)
+2. Check the optional project override at `.pi/extensions/pi-tool-display/config.json`
+3. Make sure the JSON is valid
+4. Make sure you are running Pi 0.79.1 or newer and the project is trusted when expecting project overrides to apply
+5. Run `/tool-display show` to inspect the effective config summary
 
 ### MCP or custom tool rendering not appearing
 

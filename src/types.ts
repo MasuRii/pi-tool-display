@@ -45,6 +45,7 @@ export interface CustomToolOverrideConfig {
 }
 
 export interface ToolDisplayConfig {
+	debug: boolean;
 	registerToolOverrides: ToolOverrideOwnership;
 	customToolOverrides: Record<string, CustomToolOverrideConfig>;
 	enableNativeUserMessageBox: boolean;
@@ -64,7 +65,33 @@ export interface ToolDisplayConfig {
 	showRtkCompactionHints: boolean;
 }
 
+export const TOOL_DISPLAY_SCALAR_CONFIG_KEYS = [
+	"debug",
+	"enableNativeUserMessageBox",
+	"readOutputMode",
+	"searchOutputMode",
+	"mcpOutputMode",
+	"previewLines",
+	"expandedPreviewMaxLines",
+	"bashOutputMode",
+	"bashCollapsedLines",
+	"diffViewMode",
+	"diffIndicatorMode",
+	"diffSplitMinWidth",
+	"diffCollapsedLines",
+	"diffWordWrap",
+	"showTruncationHints",
+	"showRtkCompactionHints",
+] as const satisfies ReadonlyArray<Exclude<keyof ToolDisplayConfig, "registerToolOverrides" | "customToolOverrides">>;
+
+export type ToolDisplayScalarConfigKey = (typeof TOOL_DISPLAY_SCALAR_CONFIG_KEYS)[number];
+
+export const TOOL_DISPLAY_PRESET_IGNORED_CONFIG_KEYS = [
+	"debug",
+] as const satisfies ReadonlyArray<ToolDisplayScalarConfigKey>;
+
 export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
+	debug: false,
 	registerToolOverrides: {
 		read: true,
 		grep: true,

@@ -1778,7 +1778,7 @@ export function registerToolDisplayOverrides(
       );
     },
     });
-  });
+  }, { deferUntilBuiltinOwner: true });
 
   registerIfOwned("ls", () => {
     registerRuntimeTool(pi, {
@@ -1817,7 +1817,7 @@ export function registerToolDisplayOverrides(
       );
     },
     });
-  });
+  }, { deferUntilBuiltinOwner: true });
 
   registerIfOwned("edit", () => {
     registerRuntimeTool(pi, {
@@ -1965,7 +1965,7 @@ export function registerToolDisplayOverrides(
       );
     },
     });
-  });
+  }, { deferUntilBuiltinOwner: true });
 
   registerIfOwned("bash", () => {
     registerRuntimeTool(pi, {

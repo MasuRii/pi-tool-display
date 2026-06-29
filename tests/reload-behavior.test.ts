@@ -143,21 +143,31 @@ test("1: after reload, new lifecycle handlers are registered", () => {
 // 2. Tool override restoration
 // ---------------------------------------------------------------------------
 
-test("2: built-in tool overrides are re-registered on reload", () => {
-  const { api, capturedTools } = createApiStub();
+test("2: built-in tool overrides are re-registered on reload", async () => {
+  const { api, capturedTools, capturedHandlers } = createApiStub();
 
   // First call
   toolDisplayExtension(api);
+  for (const { event, handler } of capturedHandlers) {
+    if (event === "session_start") {
+      await handler({}, { cwd: process.cwd(), isProjectTrusted: () => false, ui: { notify: () => {}, theme: {} } });
+    }
+  }
   const firstTools = capturedTools.map((t) => t.name);
   assert.ok(firstTools.includes("find"), "find registered on first call");
 
   // Simulate reload
   const countBeforeReload = capturedTools.length;
   toolDisplayExtension(api);
+  for (const { event, handler } of capturedHandlers) {
+    if (event === "session_start") {
+      await handler({}, { cwd: process.cwd(), isProjectTrusted: () => false, ui: { notify: () => {}, theme: {} } });
+    }
+  }
   const countAfterReload = capturedTools.length;
 
   // Each call to registerToolDisplayOverrides registers the same built-in
-  // tools again (find, ls, write immediately; read/grep/edit/bash deferred).
+  // tools again after session_start.
   assert.ok(
     countAfterReload >= countBeforeReload + 3,
     "at least 3 tools re-registered on reload",
@@ -714,19 +724,29 @@ test("8: session_start handler can be invoked after reload without errors", asyn
 // 9. Double reload safety
 // ---------------------------------------------------------------------------
 
-test("9: calling toolDisplayExtension three times (double reload) is safe", () => {
-  const { api, capturedTools, capturedCommands } = createApiStub();
+test("9: calling toolDisplayExtension three times (double reload) is safe", async () => {
+  const { api, capturedTools, capturedCommands, capturedHandlers } = createApiStub();
+  const fireSessionStart = async (): Promise<void> => {
+    for (const { event, handler } of capturedHandlers) {
+      if (event === "session_start") {
+        await handler({}, { cwd: process.cwd(), isProjectTrusted: () => false, ui: { notify: () => {}, theme: {} } });
+      }
+    }
+  };
 
   // First call
   toolDisplayExtension(api);
+  await fireSessionStart();
   const afterFirst = { tools: capturedTools.length, cmds: capturedCommands.length };
 
   // First reload
   toolDisplayExtension(api);
+  await fireSessionStart();
   const afterSecond = { tools: capturedTools.length, cmds: capturedCommands.length };
 
   // Second reload (double reload)
   assert.doesNotThrow(() => toolDisplayExtension(api));
+  await fireSessionStart();
   const afterThird = { tools: capturedTools.length, cmds: capturedCommands.length };
 
   // Each call adds more registrations (no deduplication in the stub)

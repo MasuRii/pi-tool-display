@@ -1,3 +1,4 @@
+import * as PiCodingAgent from "@earendil-works/pi-coding-agent";
 import { resolvePiAgentDir } from "./agent-dir.js";
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -16,12 +17,41 @@ import {
 	READ_OUTPUT_MODES,
 	SEARCH_OUTPUT_MODES,
 	type ToolDisplayConfig,
+	TOOL_DISPLAY_SCALAR_CONFIG_KEYS,
 	type ToolOverrideOwnership,
 } from "./types.js";
 import { toRecord } from "./tool-metadata.js";
 
-const CONFIG_DIR = join(resolvePiAgentDir(), "extensions", "pi-tool-display");
-const CONFIG_FILE = join(CONFIG_DIR, "config.json");
+const piCodingAgentExports = PiCodingAgent as unknown as { CONFIG_DIR_NAME?: unknown };
+const PROJECT_CONFIG_DIR_NAME = typeof piCodingAgentExports.CONFIG_DIR_NAME === "string"
+	? piCodingAgentExports.CONFIG_DIR_NAME
+	: ".pi";
+function getGlobalToolDisplayConfigDir(): string {
+	return join(resolvePiAgentDir(), "extensions", "pi-tool-display");
+}
+
+export function getGlobalToolDisplayConfigPath(): string {
+	return join(getGlobalToolDisplayConfigDir(), "config.json");
+}
+
+export type ToolDisplayConfigScope = "global" | "project";
+
+export interface EffectiveToolDisplayConfigLoadOptions {
+	cwd?: string;
+	projectTrusted?: boolean;
+	globalConfigFile?: string;
+	projectConfigFile?: string;
+}
+
+export interface EffectiveToolDisplayConfigLoadResult extends ConfigLoadResult {
+	activeScope: ToolDisplayConfigScope;
+	activeConfigFile: string;
+	globalConfigFile: string;
+	projectConfigFile?: string;
+	projectConfigLoaded: boolean;
+	projectConfigIgnored: boolean;
+	warnings: string[];
+}
 
 interface LegacyToolDisplayConfigSource extends Partial<ToolDisplayConfig> {
 	registerReadToolOverride?: unknown;
@@ -125,6 +155,124 @@ function getConfigFingerprint(configFile: string): string {
 	}
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function mergeConfigRecords(
+	base: Record<string, unknown>,
+	override: Record<string, unknown>,
+): Record<string, unknown> {
+	const merged: Record<string, unknown> = { ...base };
+	for (const [key, value] of Object.entries(override)) {
+		const existing = merged[key];
+		merged[key] = isPlainRecord(existing) && isPlainRecord(value)
+			? mergeConfigRecords(existing, value)
+			: value;
+	}
+	return merged;
+}
+
+function mergeRawConfigSources(sources: unknown[]): Record<string, unknown> {
+	return sources.reduce<Record<string, unknown>>((merged, source) => {
+		return isPlainRecord(source) ? mergeConfigRecords(merged, source) : merged;
+	}, {});
+}
+
+function readRawConfigFile(configFile: string): { exists: boolean; value?: unknown; error?: string } {
+	if (!existsSync(configFile)) {
+		return { exists: false };
+	}
+
+	try {
+		return {
+			exists: true,
+			value: JSON.parse(readFileSync(configFile, "utf-8")) as unknown,
+		};
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		return {
+			exists: true,
+			error: `Failed to parse ${configFile}: ${message}`,
+		};
+	}
+}
+
+function customToolOverrideConfigsEqual(
+	left: CustomToolOverrideConfig | undefined,
+	right: CustomToolOverrideConfig | undefined,
+): boolean {
+	if (!left || !right) {
+		return left === right;
+	}
+
+	return left.enabled === right.enabled &&
+		left.kind === right.kind &&
+		left.outputMode === right.outputMode;
+}
+
+function createCustomToolOverridesOverlay(
+	next: Record<string, CustomToolOverrideConfig>,
+	base: Record<string, CustomToolOverrideConfig>,
+): Record<string, CustomToolOverrideConfig> {
+	const overlay: Record<string, CustomToolOverrideConfig> = {};
+	const toolNames = new Set([...Object.keys(next), ...Object.keys(base)]);
+
+	for (const toolName of toolNames) {
+		const nextOverride = next[toolName];
+		const baseOverride = base[toolName];
+		if (customToolOverrideConfigsEqual(nextOverride, baseOverride)) {
+			continue;
+		}
+
+		if (nextOverride) {
+			overlay[toolName] = { ...nextOverride };
+			continue;
+		}
+
+		if (baseOverride?.enabled) {
+			overlay[toolName] = { ...baseOverride, enabled: false };
+		}
+	}
+
+	return overlay;
+}
+
+export function createToolDisplayConfigOverlay(
+	config: ToolDisplayConfig,
+	baseConfig: ToolDisplayConfig,
+): Record<string, unknown> {
+	const next = normalizeToolDisplayConfig(config);
+	const base = normalizeToolDisplayConfig(baseConfig);
+	const overlay: Record<string, unknown> = {};
+
+	for (const key of TOOL_DISPLAY_SCALAR_CONFIG_KEYS) {
+		if (next[key] !== base[key]) {
+			overlay[key] = next[key];
+		}
+	}
+
+	const registerToolOverrides: Partial<ToolOverrideOwnership> = {};
+	for (const toolName of BUILT_IN_TOOL_OVERRIDE_NAMES) {
+		if (next.registerToolOverrides[toolName] !== base.registerToolOverrides[toolName]) {
+			registerToolOverrides[toolName] = next.registerToolOverrides[toolName];
+		}
+	}
+	if (Object.keys(registerToolOverrides).length > 0) {
+		overlay.registerToolOverrides = registerToolOverrides;
+	}
+
+	const customToolOverrides = createCustomToolOverridesOverlay(
+		next.customToolOverrides,
+		base.customToolOverrides,
+	);
+	if (Object.keys(customToolOverrides).length > 0) {
+		overlay.customToolOverrides = customToolOverrides;
+	}
+
+	return overlay;
+}
+
 function normalizeToolOverrideOwnership(
 	rawOverrides: unknown,
 	legacyRegisterReadToolOverride: unknown,
@@ -205,6 +353,7 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 		typeof raw === "object" && raw !== null ? (raw as LegacyToolDisplayConfigSource) : ({} as LegacyToolDisplayConfigSource);
 
 	return {
+		debug: toBoolean(source.debug, DEFAULT_TOOL_DISPLAY_CONFIG.debug),
 		registerToolOverrides: normalizeToolOverrideOwnership(
 			source.registerToolOverrides,
 			source.registerReadToolOverride,
@@ -239,27 +388,79 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 	};
 }
 
-export function loadToolDisplayConfig(configFile = CONFIG_FILE): ConfigLoadResult {
+export function getProjectToolDisplayConfigPath(
+	cwd: string,
+	configDirName = PROJECT_CONFIG_DIR_NAME,
+): string {
+	return join(cwd, configDirName, "extensions", "pi-tool-display", "config.json");
+}
+
+export function loadEffectiveToolDisplayConfig(
+	options: EffectiveToolDisplayConfigLoadOptions = {},
+): EffectiveToolDisplayConfigLoadResult {
+	const globalConfigFile = options.globalConfigFile ?? getGlobalToolDisplayConfigPath();
+	const projectConfigFile = options.projectConfigFile ?? (options.cwd ? getProjectToolDisplayConfigPath(options.cwd) : undefined);
+	const warnings: string[] = [];
+	const rawSources: unknown[] = [];
+
+	const globalRaw = readRawConfigFile(globalConfigFile);
+	if (globalRaw.error) {
+		warnings.push(globalRaw.error);
+	} else if (globalRaw.exists) {
+		rawSources.push(globalRaw.value);
+	}
+
+	let projectConfigLoaded = false;
+	let projectConfigIgnored = false;
+	if (projectConfigFile && existsSync(projectConfigFile)) {
+		if (!options.projectTrusted) {
+			projectConfigIgnored = true;
+			warnings.push(`Ignored untrusted project tool-display config: ${projectConfigFile}`);
+		} else {
+			const projectRaw = readRawConfigFile(projectConfigFile);
+			if (projectRaw.error) {
+				warnings.push(projectRaw.error);
+			} else if (projectRaw.exists) {
+				rawSources.push(projectRaw.value);
+				projectConfigLoaded = true;
+			}
+		}
+	}
+
+	const activeScope: ToolDisplayConfigScope = projectConfigLoaded ? "project" : "global";
+	const activeConfigFile = activeScope === "project" && projectConfigFile ? projectConfigFile : globalConfigFile;
+	const mergedRaw = mergeRawConfigSources(rawSources);
+
+	return {
+		config: normalizeToolDisplayConfig(mergedRaw),
+		activeScope,
+		activeConfigFile,
+		globalConfigFile,
+		projectConfigFile,
+		projectConfigLoaded,
+		projectConfigIgnored,
+		warnings,
+		error: warnings[0],
+	};
+}
+
+export function loadToolDisplayConfig(configFile = getGlobalToolDisplayConfigPath()): ConfigLoadResult {
 	const fingerprint = getConfigFingerprint(configFile);
 	if (cachedConfigResult && cachedConfigFile === configFile && cachedConfigFingerprint === fingerprint) {
 		return cloneLoadResult(cachedConfigResult);
 	}
 
+	const rawConfig = readRawConfigFile(configFile);
 	let result: ConfigLoadResult;
-	if (!existsSync(configFile)) {
+	if (!rawConfig.exists) {
 		result = { config: cloneDefaultConfig() };
+	} else if (rawConfig.error) {
+		result = {
+			config: cloneDefaultConfig(),
+			error: rawConfig.error,
+		};
 	} else {
-		try {
-			const rawText = readFileSync(configFile, "utf-8");
-			const rawConfig = JSON.parse(rawText) as unknown;
-			result = { config: normalizeToolDisplayConfig(rawConfig) };
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			result = {
-				config: cloneDefaultConfig(),
-				error: `Failed to parse ${configFile}: ${message}`,
-			};
-		}
+		result = { config: normalizeToolDisplayConfig(rawConfig.value) };
 	}
 
 	cachedConfigFile = configFile;
@@ -268,13 +469,12 @@ export function loadToolDisplayConfig(configFile = CONFIG_FILE): ConfigLoadResul
 	return result;
 }
 
-export function saveToolDisplayConfig(config: ToolDisplayConfig, configFile = CONFIG_FILE): ConfigSaveResult {
-	const normalized = normalizeToolDisplayConfig(config);
+function writeToolDisplayConfigJson(configFile: string, value: unknown): ConfigSaveResult {
 	const tmpFile = `${configFile}.tmp`;
 
 	try {
 		mkdirSync(dirname(configFile), { recursive: true });
-		writeFileSync(tmpFile, `${JSON.stringify(normalized, null, 2)}\n`, "utf-8");
+		writeFileSync(tmpFile, `${JSON.stringify(value, null, 2)}\n`, "utf-8");
 		renameSync(tmpFile, configFile);
 		cachedConfigFile = undefined;
 		cachedConfigFingerprint = undefined;
@@ -296,6 +496,29 @@ export function saveToolDisplayConfig(config: ToolDisplayConfig, configFile = CO
 	}
 }
 
+export function saveToolDisplayConfig(config: ToolDisplayConfig, configFile = getGlobalToolDisplayConfigPath()): ConfigSaveResult {
+	return writeToolDisplayConfigJson(configFile, normalizeToolDisplayConfig(config));
+}
+
+export function saveToolDisplayConfigOverlay(
+	config: ToolDisplayConfig,
+	baseConfig: ToolDisplayConfig,
+	configFile = getGlobalToolDisplayConfigPath(),
+): ConfigSaveResult {
+	return writeToolDisplayConfigJson(
+		configFile,
+		createToolDisplayConfigOverlay(config, baseConfig),
+	);
+}
+
+export function getToolDisplayDebugPaths(configFile: string): { debugDir: string; debugLogFile: string } {
+	const debugDir = join(dirname(configFile), "debug");
+	return {
+		debugDir,
+		debugLogFile: join(debugDir, "debug.log"),
+	};
+}
+
 export function getToolDisplayConfigPath(): string {
-	return CONFIG_FILE;
+	return getGlobalToolDisplayConfigPath();
 }

@@ -92,11 +92,8 @@ test("registerToolDisplayOverrides copies built-in prompt metadata onto overridd
 	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
 
 	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
-	assert.deepEqual(
-		registeredTools.map((tool) => tool.name).sort(),
-		["find", "ls", "write"],
-	);
-	await eventHandlers.before_agent_start?.();
+	assert.deepEqual(registeredTools.map((tool) => tool.name).sort(), []);
+	await eventHandlers.session_start?.();
 
 	assert.equal(registeredTools.length, 7);
 

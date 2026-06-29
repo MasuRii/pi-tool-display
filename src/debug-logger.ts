@@ -21,10 +21,17 @@ interface ToolDisplayDebugLoggerFileSystem {
   appendFile: typeof appendFile;
 }
 
+export interface ToolDisplayDebugRuntimeConfig {
+  debug: boolean;
+  debugDir?: string;
+  debugLogFile?: string;
+}
+
 export interface ToolDisplayDebugLoggerOptions {
   configFile?: string;
   debugDir?: string;
   debugLogFile?: string;
+  runtimeConfig?: () => ToolDisplayDebugRuntimeConfig;
   cacheTtlMs?: number;
   now?: () => number;
   createDate?: () => Date;
@@ -52,6 +59,7 @@ export function createToolDisplayDebugLogger(options: ToolDisplayDebugLoggerOpti
   const configFile = options.configFile ?? DEFAULT_DEBUG_CONFIG_FILE;
   const debugDir = options.debugDir ?? DEFAULT_DEBUG_DIR;
   const debugLogFile = options.debugLogFile ?? DEFAULT_DEBUG_LOG_FILE;
+  const runtimeConfig = options.runtimeConfig;
   const cacheTtlMs = options.cacheTtlMs ?? DEFAULT_DEBUG_CONFIG_CACHE_TTL_MS;
   const now = options.now ?? Date.now;
   const createDate = options.createDate ?? (() => new Date());
@@ -60,7 +68,7 @@ export function createToolDisplayDebugLogger(options: ToolDisplayDebugLoggerOpti
   let cachedDebugFingerprint: string | undefined;
   let cachedDebugEnabled = false;
   let cachedDebugCheckedAt = 0;
-  let debugDirectoryReady = false;
+  let debugDirectoryReadyFor: string | undefined;
   let writeQueue: Promise<void> = Promise.resolve();
 
   function getDebugConfigFingerprint(): string {
@@ -72,7 +80,27 @@ export function createToolDisplayDebugLogger(options: ToolDisplayDebugLoggerOpti
     }
   }
 
-  function isDebugEnabled(): boolean {
+  function getRuntimeConfig(): ToolDisplayDebugRuntimeConfig | undefined {
+    try {
+      return runtimeConfig?.();
+    } catch {
+      return undefined;
+    }
+  }
+
+  function getCurrentDebugDir(runtime?: ToolDisplayDebugRuntimeConfig): string {
+    return runtime?.debugDir ?? debugDir;
+  }
+
+  function getCurrentDebugLogFile(runtime?: ToolDisplayDebugRuntimeConfig): string {
+    return runtime?.debugLogFile ?? debugLogFile;
+  }
+
+  function isDebugEnabled(runtime?: ToolDisplayDebugRuntimeConfig): boolean {
+    if (runtime) {
+      return runtime.debug === true;
+    }
+
     const checkedAt = now();
     if (cachedDebugFingerprint !== undefined && checkedAt - cachedDebugCheckedAt < cacheTtlMs) {
       return cachedDebugEnabled;
@@ -99,27 +127,30 @@ export function createToolDisplayDebugLogger(options: ToolDisplayDebugLoggerOpti
     }
   }
 
-  function ensureDebugDirectory(): void {
-    if (debugDirectoryReady) {
+  function ensureDebugDirectory(currentDebugDir: string): void {
+    if (debugDirectoryReadyFor === currentDebugDir) {
       return;
     }
 
-    fileSystem.mkdirSync(debugDir, { recursive: true });
-    debugDirectoryReady = true;
+    fileSystem.mkdirSync(currentDebugDir, { recursive: true });
+    debugDirectoryReadyFor = currentDebugDir;
   }
 
-  function appendLine(line: string): Promise<void> {
-    return fileSystem.appendFile(debugLogFile, line, "utf8");
+  function appendLine(debugLogFileForLine: string, line: string): Promise<void> {
+    return fileSystem.appendFile(debugLogFileForLine, line, "utf8");
   }
 
   return {
     log(message: string, error?: unknown): void {
-      if (!isDebugEnabled()) {
+      const runtime = getRuntimeConfig();
+      if (!isDebugEnabled(runtime)) {
         return;
       }
 
       try {
-        ensureDebugDirectory();
+        const debugDirForLine = getCurrentDebugDir(runtime);
+        const debugLogFileForLine = getCurrentDebugLogFile(runtime);
+        ensureDebugDirectory(debugDirForLine);
         const errorText = error instanceof Error
           ? `${error.name}: ${error.message}`
           : error === undefined
@@ -128,8 +159,8 @@ export function createToolDisplayDebugLogger(options: ToolDisplayDebugLoggerOpti
         const suffix = errorText ? ` ${redactMessage(errorText)}` : "";
         const line = `${createDate().toISOString()} ${redactMessage(message)}${suffix}\n`;
         writeQueue = writeQueue.then(
-          () => appendLine(line),
-          () => appendLine(line),
+          () => appendLine(debugLogFileForLine, line),
+          () => appendLine(debugLogFileForLine, line),
         );
         void writeQueue.catch(() => undefined);
       } catch {
@@ -142,8 +173,20 @@ export function createToolDisplayDebugLogger(options: ToolDisplayDebugLoggerOpti
   };
 }
 
-const defaultDebugLogger = createToolDisplayDebugLogger();
+let defaultRuntimeConfigProvider: (() => ToolDisplayDebugRuntimeConfig) | undefined;
+
+const defaultDebugLogger = createToolDisplayDebugLogger({
+  runtimeConfig: () => defaultRuntimeConfigProvider?.() ?? { debug: false },
+});
+
+export function configureToolDisplayDebugLogger(provider: () => ToolDisplayDebugRuntimeConfig): void {
+  defaultRuntimeConfigProvider = provider;
+}
 
 export function logToolDisplayDebug(message: string, error?: unknown): void {
   defaultDebugLogger.log(message, error);
+}
+
+export function flushToolDisplayDebugLogger(): Promise<void> {
+  return defaultDebugLogger.flush();
 }

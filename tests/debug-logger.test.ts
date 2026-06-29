@@ -3,7 +3,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createToolDisplayDebugLogger } from "../src/debug-logger.ts";
+import {
+  configureToolDisplayDebugLogger,
+  createToolDisplayDebugLogger,
+  flushToolDisplayDebugLogger,
+  logToolDisplayDebug,
+} from "../src/debug-logger.ts";
 
 async function withTempRoot(run: (root: string) => Promise<void> | void): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "pi-tool-display-debug-"));
@@ -46,6 +51,76 @@ test("enabled debug logger writes on flush and redacts secret values", async () 
     const logContent = readFileSync(join(root, "debug", "debug.log"), "utf-8");
     assert.match(logContent, /^2026-01-01T00:00:00\.000Z request \[REDACTED\] Error: failed \[REDACTED\]/);
     assert.doesNotMatch(logContent, /sk-abcdefghijkl|sk-bcdefghijklm/);
+  });
+});
+
+test("debug logger snapshots runtime log path for queued writes", async () => {
+  await withTempRoot(async (root) => {
+    type Scope = "global" | "project";
+    let activeScope: Scope = "global";
+    const getPaths = (scope: Scope) => ({
+      debugDir: join(root, scope, "debug"),
+      debugLogFile: join(root, scope, "debug", "debug.log"),
+    });
+    const logger = createToolDisplayDebugLogger({
+      runtimeConfig: () => ({
+        debug: true,
+        ...getPaths(activeScope),
+      }),
+      createDate: () => new Date("2026-01-01T00:00:00.000Z"),
+    });
+
+    logger.log("from global scope");
+    activeScope = "project";
+    logger.log("from project scope");
+    await logger.flush();
+
+    const globalContent = readFileSync(getPaths("global").debugLogFile, "utf-8");
+    const projectContent = readFileSync(getPaths("project").debugLogFile, "utf-8");
+    assert.match(globalContent, /from global scope/);
+    assert.doesNotMatch(globalContent, /from project scope/);
+    assert.match(projectContent, /from project scope/);
+    assert.doesNotMatch(projectContent, /from global scope/);
+  });
+});
+
+test("debug logger can use runtime project config and log path", async () => {
+  await withTempRoot(async (root) => {
+    const logger = createToolDisplayDebugLogger({
+      runtimeConfig: () => ({
+        debug: true,
+        debugDir: join(root, "project", ".pi", "extensions", "pi-tool-display", "debug"),
+        debugLogFile: join(root, "project", ".pi", "extensions", "pi-tool-display", "debug", "debug.log"),
+      }),
+      createDate: () => new Date("2026-01-01T00:00:00.000Z"),
+    });
+
+    logger.log("from project config");
+    await logger.flush();
+
+    const logContent = readFileSync(
+      join(root, "project", ".pi", "extensions", "pi-tool-display", "debug", "debug.log"),
+      "utf-8",
+    );
+    assert.match(logContent, /from project config/);
+  });
+});
+
+test("default debug logger can be configured from effective config", async () => {
+  await withTempRoot(async (root) => {
+    configureToolDisplayDebugLogger(() => ({
+      debug: true,
+      debugDir: join(root, "effective", "debug"),
+      debugLogFile: join(root, "effective", "debug", "debug.log"),
+    }));
+
+    logToolDisplayDebug("from effective config");
+    await flushToolDisplayDebugLogger();
+
+    const logContent = readFileSync(join(root, "effective", "debug", "debug.log"), "utf-8");
+    assert.match(logContent, /from effective config/);
+
+    configureToolDisplayDebugLogger(() => ({ debug: false }));
   });
 });
 
