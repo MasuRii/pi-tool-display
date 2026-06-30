@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import type {
   ExtensionAPI,
@@ -63,6 +66,108 @@ function createApiStub(
   return { api, capturedTools, capturedCommands, capturedHandlers };
 }
 
+function withTempDir(name: string, run: (dir: string) => void | Promise<void>): Promise<void> | void {
+  const dir = mkdtempSync(join(tmpdir(), name));
+  const cleanup = (): void => rmSync(dir, { recursive: true, force: true });
+  try {
+    const result = run(dir);
+    if (result instanceof Promise) {
+      return result.finally(cleanup);
+    }
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
+  cleanup();
+}
+
+interface Notification {
+  message: string;
+  level: string;
+}
+
+interface ProjectConfigFixtureOptions {
+  globalConfig?: Record<string, unknown>;
+  projectConfig?: Record<string, unknown>;
+  projectTrusted?: boolean;
+}
+
+interface ProjectConfigFixture {
+  dir: string;
+  projectRoot: string;
+  globalConfigFile: string;
+  projectConfigFile: string;
+  notifications: Notification[];
+  ctx: ExtensionCommandContext & { cwd: string };
+  command: CapturedCommand;
+  capturedTools: Array<{ name: string } & Record<string, unknown>>;
+}
+
+async function withProjectConfigFixture(
+  name: string,
+  options: ProjectConfigFixtureOptions,
+  run: (fixture: ProjectConfigFixture) => void | Promise<void>,
+): Promise<void> {
+  await withTempDir(name, async (dir) => {
+    const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    try {
+      const globalConfigDir = join(dir, "agent", "extensions", "pi-tool-display");
+      const projectRoot = join(dir, "project");
+      const projectConfigDir = join(projectRoot, ".pi", "extensions", "pi-tool-display");
+      const globalConfigFile = join(globalConfigDir, "config.json");
+      const projectConfigFile = join(projectConfigDir, "config.json");
+      mkdirSync(globalConfigDir, { recursive: true });
+      mkdirSync(projectConfigDir, { recursive: true });
+      if (options.globalConfig !== undefined) {
+        writeFileSync(globalConfigFile, JSON.stringify(options.globalConfig), "utf8");
+      }
+      if (options.projectConfig !== undefined) {
+        writeFileSync(projectConfigFile, JSON.stringify(options.projectConfig), "utf8");
+      }
+
+      const { api, capturedCommands, capturedHandlers, capturedTools } = createApiStub();
+      toolDisplayExtension(api);
+      const sessionHandler = capturedHandlers.find((h) => h.event === "session_start")?.handler;
+      assert.ok(sessionHandler, "session_start handler captured");
+      const notifications: Notification[] = [];
+      const ctx = {
+        cwd: projectRoot,
+        hasUI: true,
+        ui: {
+          theme: { fg: (_c: string, text: string) => text },
+          notify: (message: string, level: string): void => {
+            notifications.push({ message, level });
+          },
+        },
+      } as unknown as ExtensionCommandContext & { cwd: string; isProjectTrusted?: () => boolean };
+      if (options.projectTrusted !== undefined) {
+        ctx.isProjectTrusted = () => options.projectTrusted === true;
+      }
+      await sessionHandler({}, ctx);
+
+      const command = capturedCommands.find((c) => c.name === "tool-display");
+      assert.ok(command?.handler, "tool-display command captured");
+      await run({
+        dir,
+        projectRoot,
+        globalConfigFile,
+        projectConfigFile,
+        notifications,
+        ctx,
+        command,
+        capturedTools,
+      });
+    } finally {
+      if (previousAgentDir === undefined) {
+        delete process.env.PI_CODING_AGENT_DIR;
+      } else {
+        process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+      }
+    }
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -94,9 +199,170 @@ test("entry point registers tool-display command", () => {
   assert.ok(cmdNames.includes("tool-display"), "tool-display command registered");
 });
 
-test("entry point registers built-in tool overrides", () => {
-  const { api, capturedTools } = createApiStub();
+test("session_start loads trusted project config over global config", async () => {
+  await withProjectConfigFixture(
+    "pi-tool-display-index-project-config-",
+    {
+      globalConfig: { readOutputMode: "summary" },
+      projectConfig: { readOutputMode: "preview" },
+      projectTrusted: true,
+    },
+    async ({ command, ctx, notifications }) => {
+      await command.handler?.("show", ctx);
+
+      assert.match(notifications.at(-1)?.message ?? "", /read=preview/);
+    },
+  );
+});
+
+test("session_start ignores project config and explains Pi 0.79.1 requirement when trust API is unavailable", async () => {
+  await withProjectConfigFixture(
+    "pi-tool-display-index-missing-trust-api-project-config-",
+    {
+      globalConfig: { readOutputMode: "summary" },
+      projectConfig: { readOutputMode: "preview" },
+    },
+    async ({ command, ctx, notifications }) => {
+      await command.handler?.("show", ctx);
+
+      assert.ok(
+        notifications.some((notification) => /Project-level tool-display configs are only supported in Pi 0\.79\.1 or newer/.test(notification.message)),
+        "missing trust API warning shown",
+      );
+      assert.match(notifications.at(-1)?.message ?? "", /read=summary/);
+    },
+  );
+});
+
+test("tool-display command refuses project save and explains Pi 0.79.1 requirement when trust API is unavailable", async () => {
+  await withProjectConfigFixture(
+    "pi-tool-display-index-missing-trust-api-save-project-config-",
+    { globalConfig: { readOutputMode: "summary" } },
+    async ({ command, ctx, notifications, projectConfigFile }) => {
+      await command.handler?.("preset balanced --project", ctx);
+
+      assert.equal(existsSync(projectConfigFile), false);
+      assert.ok(
+        notifications.some((notification) => /Project-level tool-display configs are only supported in Pi 0\.79\.1 or newer/.test(notification.message)),
+        "missing trust API save warning shown",
+      );
+      assert.equal(
+        notifications.some((notification) => /Tool display preset set to balanced\./.test(notification.message)),
+        false,
+        "refused project save should not show success notification",
+      );
+    },
+  );
+});
+
+test("tool-display command saves to active project config by default", async () => {
+  await withProjectConfigFixture(
+    "pi-tool-display-index-save-project-config-",
+    {
+      globalConfig: { readOutputMode: "summary" },
+      projectConfig: { readOutputMode: "preview" },
+      projectTrusted: true,
+    },
+    async ({ command, ctx, globalConfigFile, projectConfigFile }) => {
+      await command.handler?.("preset balanced", ctx);
+
+      const globalSaved = JSON.parse(readFileSync(globalConfigFile, "utf8")) as { searchOutputMode?: string };
+      const projectSaved = JSON.parse(readFileSync(projectConfigFile, "utf8")) as { readOutputMode?: string; searchOutputMode?: string };
+      assert.equal(globalSaved.searchOutputMode, undefined);
+      assert.equal(projectSaved.readOutputMode, undefined);
+      assert.equal(projectSaved.searchOutputMode, "count");
+    },
+  );
+});
+
+test("tool-display command can explicitly save to global config while project config is active", async () => {
+  await withProjectConfigFixture(
+    "pi-tool-display-index-save-global-config-",
+    {
+      globalConfig: { readOutputMode: "summary" },
+      projectConfig: { readOutputMode: "preview" },
+      projectTrusted: true,
+    },
+    async ({ command, ctx, globalConfigFile, projectConfigFile }) => {
+      await command.handler?.("preset balanced --global", ctx);
+
+      const globalSaved = JSON.parse(readFileSync(globalConfigFile, "utf8")) as { searchOutputMode?: string };
+      const projectSaved = JSON.parse(readFileSync(projectConfigFile, "utf8")) as { searchOutputMode?: string };
+      assert.equal(globalSaved.searchOutputMode, "count");
+      assert.equal(projectSaved.searchOutputMode, undefined);
+    },
+  );
+});
+
+test("tool-display command refuses explicit project save when project is untrusted", async () => {
+  await withProjectConfigFixture(
+    "pi-tool-display-index-refuse-untrusted-save-",
+    {
+      globalConfig: { readOutputMode: "summary" },
+      projectTrusted: false,
+    },
+    async ({ command, ctx, notifications, projectConfigFile }) => {
+      await command.handler?.("preset verbose --project", ctx);
+
+      assert.equal(existsSync(projectConfigFile), false);
+      assert.ok(
+        notifications.some((notification) => /not trusted/i.test(notification.message)),
+        "untrusted project save warning shown",
+      );
+      assert.equal(
+        notifications.some((notification) => /Tool display preset set to verbose\./.test(notification.message)),
+        false,
+        "refused project save should not show success notification",
+      );
+    },
+  );
+});
+
+test("session_start warns and ignores untrusted project config", async () => {
+  await withProjectConfigFixture(
+    "pi-tool-display-index-untrusted-project-config-",
+    {
+      globalConfig: { readOutputMode: "summary" },
+      projectConfig: { readOutputMode: "preview" },
+      projectTrusted: false,
+    },
+    async ({ command, ctx, notifications }) => {
+      assert.ok(
+        notifications.some((notification) => /Ignored untrusted project tool-display config/.test(notification.message)),
+        "untrusted project config warning shown",
+      );
+
+      await command.handler?.("show", ctx);
+
+      assert.match(notifications.at(-1)?.message ?? "", /read=summary/);
+    },
+  );
+});
+
+test("trusted project ownership config prevents built-in override registration", async () => {
+  await withProjectConfigFixture(
+    "pi-tool-display-index-project-ownership-",
+    {
+      projectConfig: { registerToolOverrides: { find: false, ls: false, write: false } },
+      projectTrusted: true,
+    },
+    ({ capturedTools }) => {
+      const toolNames = capturedTools.map((tool) => tool.name);
+      assert.equal(toolNames.includes("find"), false);
+      assert.equal(toolNames.includes("ls"), false);
+      assert.equal(toolNames.includes("write"), false);
+    },
+  );
+});
+
+test("entry point registers built-in tool overrides", async () => {
+  const { api, capturedTools, capturedHandlers } = createApiStub();
   toolDisplayExtension(api);
+  for (const { event, handler } of capturedHandlers) {
+    if (event === "session_start") {
+      await handler({}, { cwd: process.cwd(), isProjectTrusted: () => false, ui: { notify: () => {}, theme: {} } });
+    }
+  }
 
   const toolNames = capturedTools.map((t) => t.name);
   // find, ls, write are registered immediately; read/grep/edit/bash are deferred
@@ -138,12 +404,17 @@ test("before_agent_start handler refreshes capabilities without crashing", async
   await assert.doesNotReject(async () => beforeHandler());
 });
 
-test("multiple calls to toolDisplayExtension are idempotent", () => {
+test("multiple calls to toolDisplayExtension are idempotent", async () => {
   const { api, capturedTools, capturedCommands, capturedHandlers } = createApiStub();
 
   // Call twice
   toolDisplayExtension(api);
   toolDisplayExtension(api);
+  for (const { event, handler } of capturedHandlers) {
+    if (event === "session_start") {
+      await handler({}, { cwd: process.cwd(), isProjectTrusted: () => false, ui: { notify: () => {}, theme: {} } });
+    }
+  }
 
   // Second call should not throw. Tools may be registered again (that's up
   // to the extension loader to deduplicate), but the extension itself must
@@ -334,9 +605,14 @@ test("overridden tools include renderCall and renderResult functions", () => {
   }
 });
 
-test("overridden tools preserve promptSnippet and promptGuidelines from built-ins", () => {
-  const { api, capturedTools } = createApiStub();
+test("overridden tools preserve promptSnippet and promptGuidelines from built-ins", async () => {
+  const { api, capturedTools, capturedHandlers } = createApiStub();
   toolDisplayExtension(api);
+  for (const { event, handler } of capturedHandlers) {
+    if (event === "session_start") {
+      await handler({}, { cwd: process.cwd(), isProjectTrusted: () => false, ui: { notify: () => {}, theme: {} } });
+    }
+  }
 
   const byName = new Map(capturedTools.map((t) => [t.name, t]));
 

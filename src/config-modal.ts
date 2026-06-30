@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { ToolDisplayCapabilities } from "./capabilities.js";
-import { getToolDisplayConfigPath } from "./config-store.js";
+import { getToolDisplayConfigPath, type ToolDisplayConfigScope } from "./config-store.js";
 import {
 	detectToolDisplayPreset,
 	getToolDisplayPresetConfig,
@@ -14,8 +14,9 @@ import { type ToolDisplayConfig } from "./types.js";
 
 interface ToolDisplayConfigController {
 	getConfig(): ToolDisplayConfig;
-	setConfig(next: ToolDisplayConfig, ctx: ExtensionCommandContext): void;
+	setConfig(next: ToolDisplayConfig, ctx: ExtensionCommandContext, options?: { scope?: ToolDisplayConfigScope }): boolean | void;
 	getCapabilities(): ToolDisplayCapabilities;
+	getConfigPath?(): string;
 }
 
 interface ModalOverlayOptions {
@@ -75,6 +76,31 @@ function parseNumber(value: string, fallback: number): number {
 	return Number.isNaN(parsed) ? fallback : parsed;
 }
 
+function extractScopeFlag(raw: string): { command: string; scope?: ToolDisplayConfigScope } {
+	const tokens = raw.split(/\s+/).filter(Boolean);
+	let scope: ToolDisplayConfigScope | undefined;
+	const commandTokens: string[] = [];
+
+	for (const token of tokens) {
+		const normalized = token.toLowerCase();
+		if (normalized === "--project") {
+			scope = "project";
+			continue;
+		}
+		if (normalized === "--global") {
+			scope = "global";
+			continue;
+		}
+		if (normalized === "--effective") {
+			scope = undefined;
+			continue;
+		}
+		commandTokens.push(token);
+	}
+
+	return { command: commandTokens.join(" "), scope };
+}
+
 function buildAdvancedNotes(
 	config: ToolDisplayConfig,
 	capabilities: ToolDisplayCapabilities,
@@ -92,8 +118,9 @@ function buildAdvancedNotes(
 function buildInspectorSettings(
 	config: ToolDisplayConfig,
 	capabilities: ToolDisplayCapabilities,
+	activeConfigPath = getToolDisplayConfigPath(),
 ): InspectorSettingItem[] {
-	const configPath = shortenPath(getToolDisplayConfigPath());
+	const configPath = shortenPath(activeConfigPath);
 	const items: InspectorSettingItem[] = [
 		{
 			id: "preset",
@@ -314,15 +341,18 @@ function buildInspectorSettings(
 	return items;
 }
 
-function applyPreset(preset: ToolDisplayPreset): ToolDisplayConfig {
-	return getToolDisplayPresetConfig(preset);
+function applyPreset(preset: ToolDisplayPreset, currentConfig?: ToolDisplayConfig): ToolDisplayConfig {
+	const presetConfig = getToolDisplayPresetConfig(preset);
+	return currentConfig
+		? { ...presetConfig, debug: currentConfig.debug }
+		: presetConfig;
 }
 
 function applySetting(config: ToolDisplayConfig, id: string, value: string): ToolDisplayConfig {
 	switch (id) {
 		case "preset": {
 			const parsed = parseToolDisplayPreset(value);
-			return parsed ? applyPreset(parsed) : config;
+			return parsed ? applyPreset(parsed, config) : config;
 		}
 		case "enableNativeUserMessageBox":
 			return {
@@ -414,7 +444,7 @@ export async function openSettingsModal(ctx: ExtensionCommandContext, controller
 		(tui, theme, _keybindings, done) => {
 			const inspector = new SplitPaneInspectorModal(
 				{
-					getSettings: () => buildInspectorSettings(controller.getConfig(), capabilities),
+					getSettings: () => buildInspectorSettings(controller.getConfig(), capabilities, controller.getConfigPath?.()),
 					onChange: (id, newValue) => {
 						const next = applySetting(controller.getConfig(), id, newValue);
 						controller.setConfig(next, ctx);
@@ -458,7 +488,9 @@ export function handleToolDisplayArgs(args: string, ctx: ExtensionCommandContext
 		return false;
 	}
 
-	const normalized = raw.toLowerCase();
+	const parsedArgs = extractScopeFlag(raw);
+	const normalized = parsedArgs.command.toLowerCase();
+	const setOptions = parsedArgs.scope ? { scope: parsedArgs.scope } : undefined;
 
 	if (normalized === "show") {
 		ctx.ui.notify(
@@ -469,8 +501,10 @@ export function handleToolDisplayArgs(args: string, ctx: ExtensionCommandContext
 	}
 
 	if (normalized === "reset") {
-		controller.setConfig(getToolDisplayPresetConfig("opencode"), ctx);
-		ctx.ui.notify("Tool display preset reset to opencode.", "info");
+		const saved = controller.setConfig(applyPreset("opencode", controller.getConfig()), ctx, setOptions);
+		if (saved !== false) {
+			ctx.ui.notify("Tool display preset reset to opencode.", "info");
+		}
 		return true;
 	}
 
@@ -482,8 +516,10 @@ export function handleToolDisplayArgs(args: string, ctx: ExtensionCommandContext
 			return true;
 		}
 
-		controller.setConfig(getToolDisplayPresetConfig(preset), ctx);
-		ctx.ui.notify(`Tool display preset set to ${preset}.`, "info");
+		const saved = controller.setConfig(applyPreset(preset, controller.getConfig()), ctx, setOptions);
+		if (saved !== false) {
+			ctx.ui.notify(`Tool display preset set to ${preset}.`, "info");
+		}
 		return true;
 	}
 

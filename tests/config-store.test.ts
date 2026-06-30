@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  loadEffectiveToolDisplayConfig,
   loadToolDisplayConfig,
   normalizeToolDisplayConfig,
   saveToolDisplayConfig,
+  saveToolDisplayConfigOverlay,
 } from "../src/config-store.ts";
 import { DEFAULT_TOOL_DISPLAY_CONFIG } from "../src/types.ts";
 
@@ -33,6 +35,7 @@ test("config normalization clamps invalid values and migrates legacy read overri
     diffSplitMinWidth: 1,
     diffCollapsedLines: 999,
     diffWordWrap: false,
+    debug: true,
   });
 
   assert.equal(config.registerToolOverrides.read, false);
@@ -48,6 +51,86 @@ test("config normalization clamps invalid values and migrates legacy read overri
   assert.equal(config.diffSplitMinWidth, 70);
   assert.equal(config.diffCollapsedLines, 240);
   assert.equal(config.diffWordWrap, false);
+  assert.equal(config.debug, true);
+});
+
+test("effective config merges trusted project config over global config", () => {
+  withTempDir("pi-tool-display-config-merge-", (dir) => {
+    const globalConfigFile = join(dir, "global", "config.json");
+    const projectConfigFile = join(dir, "project", ".pi", "extensions", "pi-tool-display", "config.json");
+    mkdirSync(join(dir, "global"), { recursive: true });
+    mkdirSync(join(dir, "project", ".pi", "extensions", "pi-tool-display"), { recursive: true });
+    writeFileSync(globalConfigFile, JSON.stringify({
+      readOutputMode: "summary",
+      registerToolOverrides: { bash: false },
+    }), "utf8");
+    writeFileSync(projectConfigFile, JSON.stringify({
+      previewLines: 20,
+      registerToolOverrides: { read: false },
+    }), "utf8");
+
+    const result = loadEffectiveToolDisplayConfig({
+      cwd: join(dir, "project"),
+      projectTrusted: true,
+      globalConfigFile,
+    });
+
+    assert.equal(result.config.readOutputMode, "summary");
+    assert.equal(result.config.previewLines, 20);
+    assert.equal(result.config.registerToolOverrides.bash, false);
+    assert.equal(result.config.registerToolOverrides.read, false);
+    assert.equal(result.activeScope, "project");
+  });
+});
+
+test("effective config treats malformed trusted project config as not loaded", () => {
+  withTempDir("pi-tool-display-config-malformed-project-", (dir) => {
+    const globalConfigFile = join(dir, "global", "config.json");
+    const projectConfigFile = join(dir, "project", ".pi", "extensions", "pi-tool-display", "config.json");
+    mkdirSync(join(dir, "global"), { recursive: true });
+    mkdirSync(join(dir, "project", ".pi", "extensions", "pi-tool-display"), { recursive: true });
+    writeFileSync(globalConfigFile, JSON.stringify({ readOutputMode: "summary" }), "utf8");
+    writeFileSync(projectConfigFile, "{not-json", "utf8");
+
+    const result = loadEffectiveToolDisplayConfig({
+      cwd: join(dir, "project"),
+      projectTrusted: true,
+      globalConfigFile,
+    });
+
+    assert.equal(result.config.readOutputMode, "summary");
+    assert.equal(result.projectConfigLoaded, false);
+    assert.equal(result.projectConfigIgnored, false);
+    assert.equal(result.activeScope, "global");
+    assert.equal(result.activeConfigFile, globalConfigFile);
+    assert.equal(result.projectConfigFile, projectConfigFile);
+    assert.match(result.warnings.join("\n"), /Failed to parse/);
+    assert.match(result.warnings.join("\n"), /config\.json/);
+  });
+});
+
+test("effective config ignores untrusted project config and warns", () => {
+  withTempDir("pi-tool-display-config-untrusted-", (dir) => {
+    const globalConfigFile = join(dir, "global", "config.json");
+    const projectConfigFile = join(dir, "project", ".pi", "extensions", "pi-tool-display", "config.json");
+    mkdirSync(join(dir, "global"), { recursive: true });
+    mkdirSync(join(dir, "project", ".pi", "extensions", "pi-tool-display"), { recursive: true });
+    writeFileSync(globalConfigFile, JSON.stringify({ readOutputMode: "summary" }), "utf8");
+    writeFileSync(projectConfigFile, JSON.stringify({ readOutputMode: "preview" }), "utf8");
+
+    const result = loadEffectiveToolDisplayConfig({
+      cwd: join(dir, "project"),
+      projectTrusted: false,
+      globalConfigFile,
+    });
+
+    assert.equal(result.config.readOutputMode, "summary");
+    assert.equal(result.projectConfigLoaded, false);
+    assert.equal(result.projectConfigIgnored, true);
+    assert.equal(result.activeScope, "global");
+    assert.match(result.warnings.join("\n"), /Ignored untrusted project tool-display config/);
+    assert.match(result.warnings.join("\n"), /config\.json/);
+  });
 });
 
 test("config load reports parse errors and falls back to defaults", () => {
@@ -60,6 +143,61 @@ test("config load reports parse errors and falls back to defaults", () => {
     assert.deepEqual(result.config, DEFAULT_TOOL_DISPLAY_CONFIG);
     assert.match(result.error ?? "", /Failed to parse/);
     assert.match(result.error ?? "", /config\.json/);
+  });
+});
+
+test("project overlay save writes only values that differ from the base config", () => {
+  withTempDir("pi-tool-display-config-overlay-", (dir) => {
+    const configFile = join(dir, "config.json");
+    const base = normalizeToolDisplayConfig({
+      readOutputMode: "summary",
+      registerToolOverrides: { read: false, bash: false },
+    });
+    const next = normalizeToolDisplayConfig({
+      ...base,
+      searchOutputMode: "count",
+      registerToolOverrides: {
+        ...base.registerToolOverrides,
+        bash: true,
+      },
+    });
+
+    const saved = saveToolDisplayConfigOverlay(next, base, configFile);
+
+    assert.equal(saved.success, true);
+    assert.deepEqual(JSON.parse(readFileSync(configFile, "utf8")), {
+      searchOutputMode: "count",
+      registerToolOverrides: { bash: true },
+    });
+  });
+});
+
+test("project overlay save disables inherited custom overrides omitted by the next config", () => {
+  withTempDir("pi-tool-display-config-overlay-custom-", (dir) => {
+    const configFile = join(dir, "config.json");
+    const base = normalizeToolDisplayConfig({
+      customToolOverrides: {
+        inherited_tool: { enabled: true, kind: "mcp", outputMode: "preview" },
+        unchanged_tool: { enabled: true, kind: "generic", outputMode: "summary" },
+      },
+    });
+    const next = normalizeToolDisplayConfig({
+      ...base,
+      customToolOverrides: {
+        unchanged_tool: { enabled: true, kind: "generic", outputMode: "summary" },
+        project_tool: { enabled: true, kind: "generic", outputMode: "preview" },
+      },
+    });
+
+    const saved = saveToolDisplayConfigOverlay(next, base, configFile);
+
+    assert.equal(saved.success, true);
+    assert.deepEqual(JSON.parse(readFileSync(configFile, "utf8")), {
+      customToolOverrides: {
+        inherited_tool: { enabled: false, kind: "mcp", outputMode: "preview" },
+        project_tool: { enabled: true, kind: "generic", outputMode: "preview" },
+      },
+    });
   });
 });
 

@@ -58,13 +58,14 @@ function createCtxStub(
 function createControllerStub(
 	initialConfig?: Partial<ToolDisplayConfig>,
 	capabilities?: ToolDisplayCapabilities,
+	setConfigResult = true,
 ): {
 	controller: {
 		getConfig: () => ToolDisplayConfig;
-		setConfig: (next: ToolDisplayConfig, ctx: ExtensionCommandContext) => void;
+		setConfig: (next: ToolDisplayConfig, ctx: ExtensionCommandContext, options?: { scope?: "global" | "project" }) => boolean;
 		getCapabilities: () => ToolDisplayCapabilities;
 	};
-	getLastSet: () => { config: ToolDisplayConfig | null; ctx: ExtensionCommandContext | null };
+	getLastSet: () => { config: ToolDisplayConfig | null; ctx: ExtensionCommandContext | null; options?: { scope?: "global" | "project" } };
 } {
 	let config: ToolDisplayConfig = {
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
@@ -73,7 +74,7 @@ function createControllerStub(
 			...(initialConfig?.registerToolOverrides ?? DEFAULT_TOOL_DISPLAY_CONFIG.registerToolOverrides),
 		},
 	};
-	const last = { config: null as ToolDisplayConfig | null, ctx: null as ExtensionCommandContext | null };
+	const last = { config: null as ToolDisplayConfig | null, ctx: null as ExtensionCommandContext | null, options: undefined as { scope?: "global" | "project" } | undefined };
 
 	return {
 		controller: {
@@ -81,10 +82,12 @@ function createControllerStub(
 				...config,
 				registerToolOverrides: { ...config.registerToolOverrides },
 			}),
-			setConfig: (next: ToolDisplayConfig, ctx: ExtensionCommandContext) => {
+			setConfig: (next: ToolDisplayConfig, ctx: ExtensionCommandContext, options?: { scope?: "global" | "project" }) => {
 				config = { ...next, registerToolOverrides: { ...next.registerToolOverrides } };
 				last.config = config;
 				last.ctx = ctx;
+				last.options = options;
+				return setConfigResult;
 			},
 			getCapabilities: () =>
 				capabilities ?? { hasMcpTooling: false, hasRtkOptimizer: false },
@@ -171,6 +174,21 @@ test("'reset' argument sets config to opencode preset", async () => {
 	assert.equal(notifications[0]?.level, "info");
 });
 
+test("'reset' does not report success when save is refused", async () => {
+	const { api, getHandler } = createPiStub();
+	const { controller, getLastSet } = createControllerStub(undefined, undefined, false);
+	const { ctx, notifications } = createCtxStub(true);
+
+	registerToolDisplayCommand(api, controller);
+	const handler = getHandler();
+	assert.ok(handler);
+
+	await handler("reset", ctx);
+
+	assert.ok(getLastSet().config, "expected setConfig to be attempted");
+	assert.equal(notifications.length, 0);
+});
+
 test("'preset balanced' sets correct config", async () => {
 	const { api, getHandler } = createPiStub();
 	const { controller, getLastSet } = createControllerStub();
@@ -191,6 +209,23 @@ test("'preset balanced' sets correct config", async () => {
 	assert.match(notifications[0]?.message ?? "", /set to balanced/i);
 });
 
+test("'preset balanced' preserves current debug setting", async () => {
+	const { api, getHandler } = createPiStub();
+	const { controller, getLastSet } = createControllerStub({ debug: true });
+	const { ctx } = createCtxStub(true);
+
+	registerToolDisplayCommand(api, controller);
+	const handler = getHandler();
+	assert.ok(handler);
+
+	await handler("preset balanced", ctx);
+
+	const last = getLastSet();
+	assert.ok(last.config);
+	assert.equal(last.config!.readOutputMode, "summary");
+	assert.equal(last.config!.debug, true);
+});
+
 test("'preset verbose' sets correct config", async () => {
 	const { api, getHandler } = createPiStub();
 	const { controller, getLastSet } = createControllerStub();
@@ -209,6 +244,38 @@ test("'preset verbose' sets correct config", async () => {
 	assert.equal(last.config!.mcpOutputMode, "preview");
 	assert.equal(last.config!.previewLines, 12);
 	assert.equal(last.config!.bashCollapsedLines, 20);
+});
+
+test("'preset verbose --project' applies preset and requests project save scope", async () => {
+	const { api, getHandler } = createPiStub();
+	const { controller, getLastSet } = createControllerStub();
+	const { ctx } = createCtxStub(true);
+
+	registerToolDisplayCommand(api, controller);
+	const handler = getHandler();
+	assert.ok(handler);
+
+	await handler("preset verbose --project", ctx);
+
+	const last = getLastSet();
+	assert.ok(last.config);
+	assert.equal(last.config!.readOutputMode, "preview");
+	assert.equal(last.options?.scope, "project");
+});
+
+test("'preset verbose --project' does not report success when save is refused", async () => {
+	const { api, getHandler } = createPiStub();
+	const { controller, getLastSet } = createControllerStub(undefined, undefined, false);
+	const { ctx, notifications } = createCtxStub(true);
+
+	registerToolDisplayCommand(api, controller);
+	const handler = getHandler();
+	assert.ok(handler);
+
+	await handler("preset verbose --project", ctx);
+
+	assert.ok(getLastSet().config, "expected setConfig to be attempted");
+	assert.equal(notifications.length, 0);
 });
 
 test("'preset <invalid>' warns about unknown preset", async () => {

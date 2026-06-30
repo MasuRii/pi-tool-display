@@ -1,4 +1,11 @@
-import { DEFAULT_TOOL_DISPLAY_CONFIG, type CustomToolOverrideConfig, type ToolDisplayConfig } from "./types.js";
+import {
+	DEFAULT_TOOL_DISPLAY_CONFIG,
+	TOOL_DISPLAY_PRESET_IGNORED_CONFIG_KEYS,
+	TOOL_DISPLAY_SCALAR_CONFIG_KEYS,
+	type CustomToolOverrideConfig,
+	type ToolDisplayConfig,
+	type ToolDisplayScalarConfigKey,
+} from "./types.js";
 
 export const TOOL_DISPLAY_PRESETS = ["opencode", "balanced", "verbose"] as const;
 export type ToolDisplayPreset = (typeof TOOL_DISPLAY_PRESETS)[number];
@@ -69,25 +76,21 @@ function customToolOverridesEqual(a: ToolDisplayConfig, b: ToolDisplayConfig): b
 	});
 }
 
+function isPresetIgnoredConfigKey(key: ToolDisplayScalarConfigKey): boolean {
+	return (TOOL_DISPLAY_PRESET_IGNORED_CONFIG_KEYS as ReadonlyArray<ToolDisplayScalarConfigKey>).includes(key);
+}
+
+function scalarConfigEqual(a: ToolDisplayConfig, b: ToolDisplayConfig): boolean {
+	return TOOL_DISPLAY_SCALAR_CONFIG_KEYS.every((key) =>
+		isPresetIgnoredConfigKey(key) || a[key] === b[key]
+	);
+}
+
 function configsEqual(a: ToolDisplayConfig, b: ToolDisplayConfig): boolean {
 	return (
 		toolOverrideOwnershipEqual(a, b) &&
 		customToolOverridesEqual(a, b) &&
-		a.enableNativeUserMessageBox === b.enableNativeUserMessageBox &&
-		a.readOutputMode === b.readOutputMode &&
-		a.searchOutputMode === b.searchOutputMode &&
-		a.mcpOutputMode === b.mcpOutputMode &&
-		a.previewLines === b.previewLines &&
-		a.expandedPreviewMaxLines === b.expandedPreviewMaxLines &&
-		a.bashOutputMode === b.bashOutputMode &&
-		a.bashCollapsedLines === b.bashCollapsedLines &&
-		a.diffViewMode === b.diffViewMode &&
-		a.diffIndicatorMode === b.diffIndicatorMode &&
-		a.diffSplitMinWidth === b.diffSplitMinWidth &&
-		a.diffCollapsedLines === b.diffCollapsedLines &&
-		a.diffWordWrap === b.diffWordWrap &&
-		a.showTruncationHints === b.showTruncationHints &&
-		a.showRtkCompactionHints === b.showRtkCompactionHints
+		scalarConfigEqual(a, b)
 	);
 }
 
