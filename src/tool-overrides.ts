@@ -1554,6 +1554,43 @@ export function registerToolDisplayOverrides(
   const registeredBuiltInToolOverrides = new Set<BuiltInToolOverrideName>();
   const deferredBuiltInToolOverrides = new Map<DeferredBuiltInToolOverrideName, () => void>();
 
+  const getExternalBuiltInToolOwner = (
+    toolName: BuiltInToolOverrideName,
+  ): { toolName: BuiltInToolOverrideName; source: string; path: string } | undefined => {
+    let allTools: unknown[] = [];
+    try {
+      allTools = pi.getAllTools();
+    } catch (error) {
+      logToolDisplayDebug("Built-in tool override ownership discovery unavailable during load.", error);
+      return undefined;
+    }
+
+    const currentOwner = allTools.find((tool) => getTextField(tool, "name") === toolName);
+    const sourceInfo = toRecord(toRecord(currentOwner).sourceInfo);
+    const source = getTextField(sourceInfo, "source");
+    if (!currentOwner || !source || source === "builtin") {
+      return undefined;
+    }
+
+    return {
+      toolName,
+      source,
+      path: getTextField(sourceInfo, "path") ?? "unknown",
+    };
+  };
+
+  const shouldSkipBuiltInToolOverride = (
+    toolName: BuiltInToolOverrideName,
+  ): boolean => {
+    const externalOwner = getExternalBuiltInToolOwner(toolName);
+    if (!externalOwner) {
+      return false;
+    }
+
+    logToolDisplayDebug("Skipped built-in tool display override because another tool owner is active.", externalOwner);
+    return true;
+  };
+
   const registerIfOwned = (
     toolName: BuiltInToolOverrideName,
     register: () => void,
@@ -1573,7 +1610,9 @@ export function registerToolDisplayOverrides(
 
     if (options.deferUntilBuiltinOwner) {
       deferredBuiltInToolOverrides.set(toolName as DeferredBuiltInToolOverrideName, registerOnce);
-      return;
+      if (shouldSkipBuiltInToolOverride(toolName)) {
+        return;
+      }
     }
 
     registerOnce();
@@ -1584,31 +1623,12 @@ export function registerToolDisplayOverrides(
       return;
     }
 
-    let allTools: unknown[] = [];
-    try {
-      allTools = pi.getAllTools();
-    } catch (error) {
-      logToolDisplayDebug("Built-in tool override ownership discovery failed.", error);
-      return;
-    }
-
     for (const [toolName, register] of deferredBuiltInToolOverrides) {
       if (
         registeredBuiltInToolOverrides.has(toolName) ||
-        !getConfig().registerToolOverrides[toolName]
+        !getConfig().registerToolOverrides[toolName] ||
+        shouldSkipBuiltInToolOverride(toolName)
       ) {
-        continue;
-      }
-
-      const currentOwner = allTools.find((tool) => getTextField(tool, "name") === toolName);
-      const sourceInfo = toRecord(toRecord(currentOwner).sourceInfo);
-      const source = getTextField(sourceInfo, "source");
-      if (currentOwner && source && source !== "builtin") {
-        logToolDisplayDebug("Skipped built-in tool display override because another tool owner is active.", {
-          toolName,
-          source,
-          path: getTextField(sourceInfo, "path") ?? "unknown",
-        });
         continue;
       }
 

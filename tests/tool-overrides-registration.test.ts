@@ -88,13 +88,46 @@ function createExtensionApiStub(allTools: unknown[] = []): {
 	return { api, registeredTools, eventHandlers };
 }
 
+function createExtensionApiStubWithoutLoadTimeToolDiscovery(): {
+	api: ExtensionAPI;
+	registeredTools: RegisteredToolLike[];
+	eventHandlers: ToolEventHandlers;
+} {
+	const registeredTools: RegisteredToolLike[] = [];
+	const eventHandlers: ToolEventHandlers = {};
+	const api = {
+		registerTool(tool: RegisteredToolLike): void {
+			registeredTools.push(tool);
+		},
+		on(event: keyof ToolEventHandlers, handler: () => Promise<void> | void): void {
+			eventHandlers[event] = handler;
+		},
+		getAllTools(): unknown[] {
+			throw new Error("Extension runtime not initialized.");
+		},
+	} as unknown as ExtensionAPI;
+
+	return { api, registeredTools, eventHandlers };
+}
+
+test("registerToolDisplayOverrides registers built-in renderers before session_start for reload history", () => {
+	const { api, registeredTools } = createExtensionApiStubWithoutLoadTimeToolDiscovery();
+
+	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
+
+	assert.deepEqual(
+		registeredTools.map((tool) => tool.name).sort(),
+		["bash", "edit", "find", "grep", "ls", "read", "write"],
+	);
+});
+
 test("registerToolDisplayOverrides copies built-in prompt metadata onto overridden tools", async () => {
 	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
 
 	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
 	assert.deepEqual(
 		registeredTools.map((tool) => tool.name).sort(),
-		["find", "ls", "write"],
+		["bash", "edit", "find", "grep", "ls", "read", "write"],
 	);
 	await eventHandlers.before_agent_start?.();
 

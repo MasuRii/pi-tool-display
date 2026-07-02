@@ -98,15 +98,12 @@ test("entry point registers built-in tool overrides", () => {
   const { api, capturedTools } = createApiStub();
   toolDisplayExtension(api);
 
-  const toolNames = capturedTools.map((t) => t.name);
-  // find, ls, write are registered immediately; read/grep/edit/bash are deferred
-  assert.ok(toolNames.includes("find"), "find tool override registered");
-  assert.ok(toolNames.includes("ls"), "ls tool override registered");
-  assert.ok(toolNames.includes("write"), "write tool override registered");
-
-  // Disabled tools (if config disables them) would not appear; the default
-  // config enables all, so we expect at least these 3 immediately.
-  assert.ok(toolNames.length >= 3, "at least 3 tool overrides registered immediately");
+  const toolNames = capturedTools.map((t) => t.name).sort();
+  assert.deepEqual(
+    toolNames,
+    ["bash", "edit", "find", "grep", "ls", "read", "write"],
+    "built-in renderer overrides are registered during extension load",
+  );
 });
 
 test("session_start handler refreshes capabilities and notifies pending errors", async () => {
@@ -340,9 +337,7 @@ test("overridden tools preserve promptSnippet and promptGuidelines from built-in
 
   const byName = new Map(capturedTools.map((t) => [t.name, t]));
 
-  // read (deferred) won't be registered immediately; it's deferred
-  // So we only check tools registered immediately
-  for (const name of ["find", "ls", "write"] as const) {
+  for (const name of ["read", "grep", "find", "ls", "bash", "edit", "write"] as const) {
     const tool = byName.get(name);
     assert.ok(tool, `${name} is registered`);
     // promptSnippet should be a non-empty string or undefined
