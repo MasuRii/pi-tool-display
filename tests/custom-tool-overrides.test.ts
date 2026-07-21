@@ -53,7 +53,7 @@ function buildConfigWithCustomOverrides(
 	} as ToolDisplayConfig;
 }
 
-function createExtensionApiStub(allTools: RuntimeTool[] = []): {
+function createExtensionApiStub(allTools: RuntimeTool[] = [], cloneOnRegister = false): {
 	api: ExtensionAPI;
 	registeredTools: RuntimeTool[];
 	runtimeTools: RuntimeTool[];
@@ -63,7 +63,7 @@ function createExtensionApiStub(allTools: RuntimeTool[] = []): {
 	const eventHandlers: ToolEventHandlers = {};
 	const api = {
 		registerTool(tool: RuntimeTool): void {
-			registeredTools.push(tool);
+			registeredTools.push(cloneOnRegister ? { ...tool } : tool);
 		},
 		on(event: keyof ToolEventHandlers, handler: () => Promise<void> | void): void {
 			eventHandlers[event] = handler;
@@ -246,6 +246,48 @@ test("custom generic tool override honors per-tool hidden output mode", async ()
 	assert.equal(renderToolResult(quietTool, "secret\nnoisy\noutput\n"), "");
 });
 
+test("custom tool override can preserve a tool's native call renderer while hiding results", async () => {
+	const quietShell: RuntimeTool = {
+		name: "quiet_shell",
+		description: "Shell tool with a useful native command header.",
+		parameters: {},
+		execute: () => {},
+		renderCall: (args: unknown) => ({ render: () => [`quiet_shell $ ${(args as { command?: string }).command}`] }),
+		renderResult: () => ({ render: () => ["RAW RESULT"] }),
+	};
+	const config = buildConfigWithCustomOverrides({
+		quiet_shell: { enabled: true, outputMode: "hidden", preserveCallRenderer: true },
+	});
+	const { api, eventHandlers } = createExtensionApiStub([quietShell]);
+
+	registerToolDisplayOverrides(api, () => config);
+	await runLifecycle(eventHandlers);
+
+	assert.equal(renderToText(quietShell.renderCall?.({ command: "git status" }, createTheme())), "quiet_shell $ git status");
+	assert.equal(renderToolResult(quietShell, "noisy output"), "");
+});
+
+test("custom MCP tool override preserves a native call renderer while hiding results", async () => {
+	const nativeMcp: RuntimeTool = {
+		name: "native_mcp",
+		description: "MCP proxy with a useful native call header.",
+		parameters: {},
+		execute: () => {},
+		renderCall: () => ({ render: () => ["NATIVE MCP CALL"] }),
+		renderResult: () => ({ render: () => ["RAW RESULT"] }),
+	};
+	const config = buildConfigWithCustomOverrides({
+		native_mcp: { enabled: true, kind: "mcp", outputMode: "hidden", preserveCallRenderer: true },
+	});
+	const { api, eventHandlers } = createExtensionApiStub([nativeMcp]);
+
+	registerToolDisplayOverrides(api, () => config);
+	await runLifecycle(eventHandlers);
+
+	assert.equal(renderToText(nativeMcp.renderCall?.({}, createTheme())), "NATIVE MCP CALL");
+	assert.equal(renderToolResult(nativeMcp, "noisy output"), "");
+});
+
 test("custom tool overrides ignore missing tools instead of registering phantom tools", async () => {
 	const config = buildConfigWithCustomOverrides({
 		missing_tool: { enabled: true, outputMode: "summary" },
@@ -273,14 +315,14 @@ test("normalizeToolDisplayConfig preserves supported custom output modes and dro
 	const config = normalizeToolDisplayConfig({
 		customToolOverrides: {
 			hidden_tool: { enabled: true, outputMode: "hidden", label: "Ignored Label" },
-			summary_tool: { enabled: true, outputMode: "summary", pathFields: ["file_path"] },
+			summary_tool: { enabled: true, outputMode: "summary", preserveCallRenderer: true, pathFields: ["file_path"] },
 			preview_tool: { enabled: true, outputMode: "preview", renderShell: "self" },
 		},
 	}) as ToolDisplayConfigWithCustomOverrides;
 
 	assert.deepEqual(config.customToolOverrides, {
 		hidden_tool: { enabled: true, kind: "generic", outputMode: "hidden" },
-		summary_tool: { enabled: true, kind: "generic", outputMode: "summary" },
+		summary_tool: { enabled: true, kind: "generic", outputMode: "summary", preserveCallRenderer: true },
 		preview_tool: { enabled: true, kind: "generic", outputMode: "preview" },
 	});
 });
@@ -411,4 +453,57 @@ test("custom tool registered after lifecycle is decorated when it is explicitly 
 	assert.equal(typeof lateTool.renderCall, "function");
 	assert.equal(typeof lateTool.renderResult, "function");
 	assert.equal(renderToText(lateTool.renderCall?.({ query: "late" }, createTheme())), "late_custom_tool (1 arg)");
+});
+
+test("decorates a late custom tool before Pi snapshots its registration", async () => {
+	const config = buildConfigWithCustomOverrides({
+		hypa_shell: { enabled: true, outputMode: "hidden" },
+	});
+	const { api, registeredTools, eventHandlers } = createExtensionApiStub([], true);
+
+	registerToolDisplayOverrides(api, () => config);
+	await runLifecycle(eventHandlers);
+
+	const hypaShell: RuntimeTool = {
+		name: "hypa_shell",
+		description: "Run shell commands through Hypa compression.",
+		parameters: {},
+		execute: () => {},
+		renderCall: () => ({ render: () => ["RAW HYPA CALL"] }),
+		renderResult: () => ({ render: () => ["RAW HYPA RESULT"] }),
+	};
+	(api as unknown as { registerTool(tool: RuntimeTool): void }).registerTool(hypaShell);
+
+	const registeredHypaShell = registeredTools.find((tool) => tool.name === "hypa_shell");
+	assert.ok(registeredHypaShell);
+	assert.equal(renderToText(registeredHypaShell.renderCall?.({ command: "git status" }, createTheme())), "hypa_shell (1 arg)");
+	assert.equal(renderToolResult(registeredHypaShell, "large noisy output"), "");
+});
+
+test("decorates distinct late tool objects with the same configured name before each snapshot", async () => {
+	const config = buildConfigWithCustomOverrides({
+		hypa_shell: { enabled: true, outputMode: "hidden" },
+	});
+	const { api, registeredTools, eventHandlers } = createExtensionApiStub([], true);
+
+	registerToolDisplayOverrides(api, () => config);
+	await runLifecycle(eventHandlers);
+
+	for (const nativeCall of ["FIRST NATIVE CALL", "SECOND NATIVE CALL"]) {
+		(api as unknown as { registerTool(tool: RuntimeTool): void }).registerTool({
+			name: "hypa_shell",
+			description: "Run shell commands through Hypa compression.",
+			parameters: {},
+			execute: () => {},
+			renderCall: () => ({ render: () => [nativeCall] }),
+			renderResult: () => ({ render: () => ["RAW HYPA RESULT"] }),
+		});
+	}
+
+	const registeredHypaTools = registeredTools.filter((tool) => tool.name === "hypa_shell");
+	assert.equal(registeredHypaTools.length, 2);
+	for (const registeredTool of registeredHypaTools) {
+		assert.equal(renderToText(registeredTool.renderCall?.({ command: "git status" }, createTheme())), "hypa_shell (1 arg)");
+		assert.equal(renderToolResult(registeredTool, "large noisy output"), "");
+	}
 });

@@ -197,7 +197,8 @@ Use `customToolOverrides` when another extension registers a noisy top-level too
     "custom_mcp_gateway": {
       "enabled": true,
       "kind": "mcp",
-      "outputMode": "preview"
+      "outputMode": "preview",
+      "preserveCallRenderer": true
     }
   }
 }
@@ -210,6 +211,7 @@ Each entry supports:
 | `enabled` | boolean | `true` | Whether `pi-tool-display` should decorate this custom tool |
 | `kind` | string | `"generic"` | `generic` for plain compact output, or `mcp` for MCP-style call labels and result handling |
 | `outputMode` | string | `"summary"` | `hidden`, `summary`, or `preview` for this custom tool's result output |
+| `preserveCallRenderer` | boolean | `false` | Keep the tool's native call/header renderer while overriding only its result output |
 
 Boolean shorthand is also accepted:
 
@@ -252,7 +254,8 @@ Notes:
     "custom_mcp_gateway": {
       "enabled": true,
       "kind": "mcp",
-      "outputMode": "preview"
+      "outputMode": "preview",
+      "preserveCallRenderer": true
     }
   },
   "enableNativeUserMessageBox": true,

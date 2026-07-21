@@ -16,6 +16,7 @@ import {
 import { registerToolDisplayOverrides } from "../src/tool-overrides.ts";
 import { DEFAULT_TOOL_DISPLAY_CONFIG } from "../src/types.ts";
 
+const TOOL_DISPLAY_API_KEY = Symbol.for("pi-tool-display.api.v1");
 const TOOL_DISPLAY_PENDING_DECORATIONS_KEY = Symbol.for("pi-tool-display.pendingDecorations.v1");
 
 interface RegisteredToolLike {
@@ -267,6 +268,32 @@ test("bash override uses shellCommandPrefix from Pi settings", async () => {
 			}
 		}
 	});
+});
+
+test("runtime API registers and unregisters typed adapter contracts", () => {
+	type GlobalWithToolDisplayApi = typeof globalThis & {
+		[TOOL_DISPLAY_API_KEY]?: {
+			version: number;
+			decorateTool(tool: Record<string, unknown>): Record<string, unknown>;
+			registerAdapter(adapter: { toolName?: string; kind?: "mcp"; overrideExistingRenderers?: boolean }): string;
+			unregisterAdapter(id: string): boolean;
+		};
+	};
+	const { api } = createExtensionApiStub();
+	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
+	const displayApi = (globalThis as GlobalWithToolDisplayApi)[TOOL_DISPLAY_API_KEY];
+	assert.ok(displayApi);
+
+	const id = displayApi.registerAdapter({
+		toolName: "adapter_mcp",
+		kind: "mcp",
+		overrideExistingRenderers: true,
+	});
+	const decorated = displayApi.decorateTool({ name: "adapter_mcp" });
+	assert.equal(typeof decorated.renderCall, "function");
+	assert.equal(typeof decorated.renderResult, "function");
+	assert.equal(displayApi.unregisterAdapter(id), true);
+	assert.equal(displayApi.unregisterAdapter(id), false);
 });
 
 test("registerToolDisplayOverrides drains pending display decorations from early-loading extensions", () => {

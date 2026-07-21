@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added `preserveCallRenderer` for custom tool overrides that should retain a useful native call header while compacting or hiding only result output.
+
+### Fixed
+- Decorate tools registered by later-loaded extensions before Pi snapshots their definitions.
+- Track decorated tool objects by identity and restore interception state across reloads and defensive double loads.
+
 ## [0.5.0] - 2026-07-03
 
 ### Added

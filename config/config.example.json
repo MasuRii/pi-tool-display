@@ -13,7 +13,8 @@
     "ide_find_symbol": {
       "enabled": false,
       "kind": "generic",
-      "outputMode": "summary"
+      "outputMode": "summary",
+      "preserveCallRenderer": true
     },
     "custom_mcp_gateway": {
       "enabled": false,

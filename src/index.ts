@@ -33,12 +33,15 @@ function ownershipChanged(
 }
 
 export default function toolDisplayExtension(pi: ExtensionAPI): void {
+  // Pi normally calls session_shutdown before reload, but dispose a prior
+  // generation defensively when loaders invoke this entrypoint twice.
+  disposeAll();
+  resetDisposed();
+
   const initial = loadToolDisplayConfig();
   if (!initial.config.enabled) {
     return;
   }
-
-  resetDisposed();
 
   pi.on("session_shutdown", (event: { reason: string }) => {
     if (event.reason === "reload") {
