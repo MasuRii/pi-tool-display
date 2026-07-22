@@ -92,12 +92,15 @@ test("registerToolDisplayOverrides copies built-in prompt metadata onto overridd
 	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
 
 	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
+	// Built-in overrides are deferred until session/agent lifecycle so other
+	// extensions can claim ownership first (e.g. pi-patty-bg-tasks for bash).
+	assert.deepEqual(registeredTools.map((tool) => tool.name).sort(), []);
+	await eventHandlers.before_agent_start?.();
+
 	assert.deepEqual(
 		registeredTools.map((tool) => tool.name).sort(),
 		["bash", "edit", "find", "grep", "ls", "read", "write"],
 	);
-	await eventHandlers.before_agent_start?.();
-
 	assert.equal(registeredTools.length, 7);
 
 	const byName = new Map(registeredTools.map((tool) => [tool.name, tool]));
@@ -128,18 +131,47 @@ test("registerToolDisplayOverrides copies built-in prompt metadata onto overridd
 	assert.equal(byName.get("bash")?.promptGuidelines, undefined);
 });
 
-test("registerToolDisplayOverrides registers built-in display renderers during extension load for pre-bind history rendering", () => {
-	const { api, registeredTools } = createExtensionApiStub();
+test("registerToolDisplayOverrides defers built-in display renderers until session lifecycle", async () => {
+	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
 
 	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
+	assert.equal(registeredTools.length, 0, "must not register built-ins during extension load");
+
+	await eventHandlers.session_start?.();
 
 	const byName = new Map(registeredTools.map((tool) => [tool.name, tool]));
 	for (const name of ["read", "grep", "find", "ls", "bash", "edit", "write"] as const) {
 		const registeredTool = byName.get(name);
-		assert.ok(registeredTool, `expected '${name}' to be available before session_start`);
-		assert.equal(typeof registeredTool.renderCall, "function", `${name} has renderCall before session_start`);
-		assert.equal(typeof registeredTool.renderResult, "function", `${name} has renderResult before session_start`);
+		assert.ok(registeredTool, `expected '${name}' after session_start`);
+		assert.equal(typeof registeredTool.renderCall, "function", `${name} has renderCall after session_start`);
+		assert.equal(typeof registeredTool.renderResult, "function", `${name} has renderResult after session_start`);
 	}
+});
+
+test("defers built-in bash override when another extension owns bash after load", async () => {
+	// Simulate load-order: tool-display evaluates first (no external bash yet),
+	// then pi-patty-bg-tasks registers bash before session_start/before_agent_start.
+	const externalTools: unknown[] = [];
+	const { api, registeredTools, eventHandlers } = createExtensionApiStub(externalTools);
+
+	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
+	assert.equal(registeredTools.some((tool) => tool.name === "bash"), false);
+
+	externalTools.push({
+		name: "bash",
+		sourceInfo: {
+			source: "package",
+			path: "node_modules/pi-patty-bg-tasks/src/tools/bash.ts",
+		},
+	});
+
+	await eventHandlers.session_start?.();
+	await eventHandlers.before_agent_start?.();
+
+	const registeredNames = new Set(registeredTools.map((tool) => tool.name));
+	assert.equal(registeredNames.has("bash"), false, "must yield bash to external owner");
+	assert.equal(registeredNames.has("read"), true);
+	assert.equal(registeredNames.has("write"), true);
 });
 
 test("registerToolDisplayOverrides clones built-in parameter schemas so Pi TUI keeps extension renderers active", async () => {

@@ -322,7 +322,18 @@ If another extension is already rendering one of the built-in tools:
 2. Run `/reload`
 3. Use `/tool-display show` to confirm the effective ownership state
 
-Built-in tool overrides (including `bash`) are registered with deferred ownership discovery — the extension discovers which tools it owns via `pi.getAllTools()` during `before_agent_start` before overriding, preventing conflicts with other extensions that also register overrides.
+Built-in tool overrides (including `bash`) are **queued at load** and only registered during `session_start` / `before_agent_start`. Before registering, the extension re-checks `pi.getAllTools()` and yields any tool already owned by a non-builtin source (for example `pi-patty-bg-tasks` owning `bash`). Immediate load-time registration is intentionally avoided so package order cannot create a hard `Tool "bash" conflicts with ...` diagnostic.
+
+If you still prefer an explicit config, set:
+
+```json
+{
+  "registerToolOverrides": {
+    "bash": false
+  }
+}
+```
+
 
 ### Config not loading
 

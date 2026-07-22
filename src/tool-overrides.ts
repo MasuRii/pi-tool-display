@@ -1616,20 +1616,40 @@ export function registerToolDisplayOverrides(
     return false;
   };
 
+  // Built-in overrides are collected at load time and applied after all
+  // extensions have registered tools. Immediate registration races with
+  // packages like pi-patty-bg-tasks that also own `bash`, producing a hard
+  // "Tool \"bash\" conflicts with ..." diagnostic at startup.
+  const pendingBuiltInToolOverrides = new Map<BuiltInToolOverrideName, () => void>();
+
   const registerIfOwned = (
     toolName: BuiltInToolOverrideName,
     register: () => void,
   ): void => {
     if (
       registeredBuiltInToolOverrides.has(toolName) ||
-      !getConfig().registerToolOverrides[toolName] ||
-      isExternallyOwnedBuiltInTool(toolName)
+      pendingBuiltInToolOverrides.has(toolName) ||
+      !getConfig().registerToolOverrides[toolName]
     ) {
       return;
     }
 
-    register();
-    registeredBuiltInToolOverrides.add(toolName);
+    pendingBuiltInToolOverrides.set(toolName, register);
+  };
+
+  const registerDeferredBuiltInToolOverrides = (): void => {
+    for (const [toolName, register] of pendingBuiltInToolOverrides) {
+      if (
+        registeredBuiltInToolOverrides.has(toolName) ||
+        !getConfig().registerToolOverrides[toolName] ||
+        isExternallyOwnedBuiltInTool(toolName)
+      ) {
+        continue;
+      }
+
+      register();
+      registeredBuiltInToolOverrides.add(toolName);
+    }
   };
 
   function createBuiltinToolBase(toolName: keyof BuiltInTools) {
@@ -2110,11 +2130,13 @@ export function registerToolDisplayOverrides(
 
   pi.on("session_start", async () => {
     clearWriteExecutionMeta(writeExecutionMetaByToolCallId);
+    registerDeferredBuiltInToolOverrides();
     registerMcpToolOverrides();
     scheduleMcpToolOverrideDiscovery();
   });
   pi.on("before_agent_start", async () => {
     clearWriteExecutionMeta(writeExecutionMetaByToolCallId);
+    registerDeferredBuiltInToolOverrides();
     registerMcpToolOverrides();
     scheduleMcpToolOverrideDiscovery();
   });

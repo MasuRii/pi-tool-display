@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Actually defer built-in tool override registration (`read`/`grep`/`find`/`ls`/`bash`/`edit`/`write`) until `session_start` / `before_agent_start`, and re-evaluate ownership against the full tool graph before registering. This prevents hard startup conflicts when another extension owns `bash` (e.g. `pi-patty-bg-tasks`), which previously raced because overrides were still registered at extension load time despite README claims of deferred discovery.
+
+
 ## [0.5.0] - 2026-07-03
 
 ### Added
