@@ -61,6 +61,7 @@ export interface ToolDisplayConfig {
 	diffSplitMinWidth: number;
 	diffCollapsedLines: number;
 	diffWordWrap: boolean;
+	allowExternalDiffPreviews: boolean;
 	showTruncationHints: boolean;
 	showRtkCompactionHints: boolean;
 }
@@ -90,6 +91,7 @@ export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 	diffSplitMinWidth: 120,
 	diffCollapsedLines: 24,
 	diffWordWrap: true,
+	allowExternalDiffPreviews: false,
 	showTruncationHints: false,
 	showRtkCompactionHints: false,
 };

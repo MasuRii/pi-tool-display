@@ -232,6 +232,10 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 		diffSplitMinWidth: clampNumber(source.diffSplitMinWidth, 70, 240, DEFAULT_TOOL_DISPLAY_CONFIG.diffSplitMinWidth),
 		diffCollapsedLines: clampNumber(source.diffCollapsedLines, 4, 240, DEFAULT_TOOL_DISPLAY_CONFIG.diffCollapsedLines),
 		diffWordWrap: toBoolean(source.diffWordWrap, DEFAULT_TOOL_DISPLAY_CONFIG.diffWordWrap),
+		allowExternalDiffPreviews: toBoolean(
+			source.allowExternalDiffPreviews,
+			DEFAULT_TOOL_DISPLAY_CONFIG.allowExternalDiffPreviews,
+		),
 		showTruncationHints: toBoolean(source.showTruncationHints, DEFAULT_TOOL_DISPLAY_CONFIG.showTruncationHints),
 		showRtkCompactionHints: toBoolean(
 			source.showRtkCompactionHints,

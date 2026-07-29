@@ -79,11 +79,20 @@ function safeRealpath(path: string): string {
   }
 }
 
-function resolveWorkspaceReadPath(cwd: string, rawPath: string): { resolvedPath: string; error?: string } {
+export interface ReadWorkspaceOptions {
+  allowExternalDiffPreviews?: boolean;
+}
+
+function resolveWorkspaceReadPath(
+  cwd: string,
+  rawPath: string,
+  options?: ReadWorkspaceOptions,
+): { resolvedPath: string; error?: string } {
   const workspacePath = safeRealpath(cwd);
   const resolvedPath = resolvePreviewPath(cwd, rawPath);
+  const canonicalResolvedPath = safeRealpath(resolvedPath);
 
-  if (!isWithinWorkspace(workspacePath, resolvedPath)) {
+  if (!options?.allowExternalDiffPreviews && !isWithinWorkspace(workspacePath, canonicalResolvedPath)) {
     return {
       resolvedPath,
       error: "Preview unavailable because the target path is outside the current workspace.",
@@ -96,7 +105,7 @@ function resolveWorkspaceReadPath(cwd: string, rawPath: string): { resolvedPath:
 
   try {
     const targetPath = realpathSync(resolvedPath);
-    if (!isWithinWorkspace(workspacePath, targetPath)) {
+    if (!options?.allowExternalDiffPreviews && !isWithinWorkspace(workspacePath, targetPath)) {
       return {
         resolvedPath,
         error: "Preview unavailable because the target path resolves outside the current workspace.",
@@ -113,8 +122,12 @@ function resolveWorkspaceReadPath(cwd: string, rawPath: string): { resolvedPath:
   return { resolvedPath };
 }
 
-export function readWorkspaceUtf8File(cwd: string, rawPath: string): FileReadResult {
-  const safePath = resolveWorkspaceReadPath(cwd, rawPath);
+export function readWorkspaceUtf8File(
+  cwd: string,
+  rawPath: string,
+  options?: ReadWorkspaceOptions,
+): FileReadResult {
+  const safePath = resolveWorkspaceReadPath(cwd, rawPath, options);
   if (safePath.error) {
     return { exists: false, error: safePath.error };
   }
@@ -305,14 +318,18 @@ function buildProjectedEditContent(originalContent: string, replacements: readon
   };
 }
 
-export function buildPendingWritePreviewData(input: unknown, cwd: string): PendingDiffPreviewData | undefined {
+export function buildPendingWritePreviewData(
+  input: unknown,
+  cwd: string,
+  options?: ReadWorkspaceOptions,
+): PendingDiffPreviewData | undefined {
   const filePath = getToolPath(input, false);
   const nextContent = getWriteContent(input);
   if (!filePath || typeof nextContent !== "string") {
     return undefined;
   }
 
-  const existing = readWorkspaceUtf8File(cwd, filePath);
+  const existing = readWorkspaceUtf8File(cwd, filePath, options);
   return {
     filePath,
     previousContent: existing.content,
@@ -323,13 +340,17 @@ export function buildPendingWritePreviewData(input: unknown, cwd: string): Pendi
   };
 }
 
-export function buildPendingEditPreviewData(input: unknown, cwd: string): PendingDiffPreviewData | undefined {
+export function buildPendingEditPreviewData(
+  input: unknown,
+  cwd: string,
+  options?: ReadWorkspaceOptions,
+): PendingDiffPreviewData | undefined {
   const filePath = getToolPath(input, true);
   if (!filePath) {
     return undefined;
   }
 
-  const existing = readWorkspaceUtf8File(cwd, filePath);
+  const existing = readWorkspaceUtf8File(cwd, filePath, options);
   if (existing.error) {
     return {
       filePath,

@@ -94,6 +94,59 @@ test("pending edit preview reports a concise notice for true edit mismatches", (
   }
 });
 
+test("pending edit preview blocks external target paths when allowExternalDiffPreviews is false", () => {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "pi-tool-display-workspace-"));
+  const externalDir = mkdtempSync(join(tmpdir(), "pi-tool-display-external-"));
+
+  try {
+    const externalFilePath = join(externalDir, "external.txt");
+    writeFileSync(externalFilePath, "outside content\n", "utf8");
+
+    const preview = buildPendingEditPreviewData(
+      {
+        path: externalFilePath,
+        edits: [{ oldText: "outside content", newText: "updated content" }],
+      },
+      workspaceDir,
+      { allowExternalDiffPreviews: false },
+    );
+
+    assert.equal(
+      preview?.notice,
+      "Preview unavailable because the target path is outside the current workspace.",
+    );
+  } finally {
+    rmSync(workspaceDir, { recursive: true, force: true });
+    rmSync(externalDir, { recursive: true, force: true });
+  }
+});
+
+test("pending edit preview allows external target paths when allowExternalDiffPreviews is true", () => {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "pi-tool-display-workspace-"));
+  const externalDir = mkdtempSync(join(tmpdir(), "pi-tool-display-external-"));
+
+  try {
+    const externalFilePath = join(externalDir, "external.txt");
+    writeFileSync(externalFilePath, "outside content\n", "utf8");
+
+    const preview = buildPendingEditPreviewData(
+      {
+        path: externalFilePath,
+        edits: [{ oldText: "outside content", newText: "updated content" }],
+      },
+      workspaceDir,
+      { allowExternalDiffPreviews: true },
+    );
+
+    assert.equal(preview?.notice, undefined);
+    assert.equal(preview?.previousContent, "outside content\n");
+    assert.equal(preview?.nextContent, "updated content\n");
+  } finally {
+    rmSync(workspaceDir, { recursive: true, force: true });
+    rmSync(externalDir, { recursive: true, force: true });
+  }
+});
+
 test("write call summary moves metrics onto the first line when the result header omits them", () => {
   assert.equal(
     shouldRenderWriteCallSummary({

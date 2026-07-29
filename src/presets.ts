@@ -76,6 +76,7 @@ function configsEqual(a: ToolDisplayConfig, b: ToolDisplayConfig): boolean {
 		a.diffSplitMinWidth === b.diffSplitMinWidth &&
 		a.diffCollapsedLines === b.diffCollapsedLines &&
 		a.diffWordWrap === b.diffWordWrap &&
+		a.allowExternalDiffPreviews === b.allowExternalDiffPreviews &&
 		a.showTruncationHints === b.showTruncationHints &&
 		a.showRtkCompactionHints === b.showRtkCompactionHints
 	);

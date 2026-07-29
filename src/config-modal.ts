@@ -290,6 +290,26 @@ function buildInspectorSettings(
 			searchTerms: ["diff", "indicator", "bars", "classic", "none", "marker"],
 		},
 		{
+			id: "allowExternalDiffPreviews",
+			label: "External diff previews",
+			currentValue: toOnOff(config.allowExternalDiffPreviews),
+			values: ["off", "on"],
+			inspectorTitle: "Allow External Diff Previews",
+			inspectorSummary: [
+				"Allows edit and write diff previews for target files located outside the active workspace directory.",
+				"When enabled, pending diff previews will read existing target files across the filesystem instead of restricting previews to workspace paths.",
+			],
+			inspectorOptions: [
+				"off — restrict diff previews to target files within the active workspace",
+				"on — allow diff previews for target paths anywhere on disk",
+			],
+			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
+				"This setting only affects presentation previews rendered by pi-tool-display.",
+			]),
+			inspectorPath: configPath,
+			searchTerms: ["diff", "external", "preview", "workspace", "path", "outside"],
+		},
+		{
 			id: "enableNativeUserMessageBox",
 			label: "Native user message box",
 			currentValue: toOnOff(config.enableNativeUserMessageBox),
@@ -368,6 +388,11 @@ function applySetting(config: ToolDisplayConfig, id: string, value: string): Too
 			return {
 				...config,
 				diffIndicatorMode: value as ToolDisplayConfig["diffIndicatorMode"],
+			};
+		case "allowExternalDiffPreviews":
+			return {
+				...config,
+				allowExternalDiffPreviews: value === "on",
 			};
 		default:
 			return config;
