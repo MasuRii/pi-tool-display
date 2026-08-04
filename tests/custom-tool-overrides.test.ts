@@ -56,14 +56,17 @@ function buildConfigWithCustomOverrides(
 function createExtensionApiStub(allTools: RuntimeTool[] = []): {
 	api: ExtensionAPI;
 	registeredTools: RuntimeTool[];
+	registeredToolSnapshots: RuntimeTool[];
 	runtimeTools: RuntimeTool[];
 	eventHandlers: ToolEventHandlers;
 } {
 	const registeredTools: RuntimeTool[] = [];
+	const registeredToolSnapshots: RuntimeTool[] = [];
 	const eventHandlers: ToolEventHandlers = {};
 	const api = {
 		registerTool(tool: RuntimeTool): void {
 			registeredTools.push(tool);
+			registeredToolSnapshots.push({ ...tool });
 		},
 		on(event: keyof ToolEventHandlers, handler: () => Promise<void> | void): void {
 			eventHandlers[event] = handler;
@@ -81,7 +84,7 @@ function createExtensionApiStub(allTools: RuntimeTool[] = []): {
 		},
 	} as unknown as ExtensionAPI;
 
-	return { api, registeredTools, runtimeTools: allTools, eventHandlers };
+	return { api, registeredTools, registeredToolSnapshots, runtimeTools: allTools, eventHandlers };
 }
 
 async function runLifecycle(eventHandlers: ToolEventHandlers): Promise<void> {
@@ -395,7 +398,7 @@ test("custom tool registered after lifecycle is decorated when it is explicitly 
 	const config = buildConfigWithCustomOverrides({
 		late_custom_tool: { enabled: true, outputMode: "summary" },
 	});
-	const { api, eventHandlers } = createExtensionApiStub([]);
+	const { api, registeredToolSnapshots, eventHandlers } = createExtensionApiStub([]);
 
 	registerToolDisplayOverrides(api, () => config);
 	await runLifecycle(eventHandlers);
@@ -411,4 +414,9 @@ test("custom tool registered after lifecycle is decorated when it is explicitly 
 	assert.equal(typeof lateTool.renderCall, "function");
 	assert.equal(typeof lateTool.renderResult, "function");
 	assert.equal(renderToText(lateTool.renderCall?.({ query: "late" }, createTheme())), "late_custom_tool (1 arg)");
+
+	const registeredSnapshot = registeredToolSnapshots.find((tool) => tool.name === "late_custom_tool");
+	assert.ok(registeredSnapshot, "expected late custom tool to reach Pi registration");
+	assert.equal(typeof registeredSnapshot.renderCall, "function", "renderer must be decorated before Pi registers the tool");
+	assert.equal(typeof registeredSnapshot.renderResult, "function", "result renderer must be decorated before Pi registers the tool");
 });

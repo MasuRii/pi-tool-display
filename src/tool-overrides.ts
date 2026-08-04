@@ -2047,7 +2047,6 @@ export function registerToolDisplayOverrides(
       this: ExtensionAPI,
       tool: ToolDefinition,
     ): void {
-      originalRegisterTool.call(this, tool);
       try {
         if (!decorateCustomToolOverrideCandidate(tool)) {
           decorateMcpToolCandidate(tool);
@@ -2055,6 +2054,7 @@ export function registerToolDisplayOverrides(
       } catch (error) {
         logToolDisplayDebug("Tool display registration decoration failed.", error);
       }
+      originalRegisterTool.call(this, tool);
     } as ExtensionAPI["registerTool"];
 
     pi.registerTool = wrappedRegisterTool;
