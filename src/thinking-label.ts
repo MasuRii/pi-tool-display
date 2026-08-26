@@ -340,4 +340,24 @@ export function registerThinkingLabeling(pi: ExtensionAPI): void {
   pi.on("context", async (event, ctx) => {
     handleThinkingContextEvent(event, ctx);
   });
+
+  pi.on("session_start", async (_event, ctx) => {
+    // Re-applies on session_start; covers /reload where Pi resets labels
+    // before re-emitting the event.
+    const ui = ctx?.ui;
+    if (typeof ui?.setHiddenThinkingLabel !== "function") {
+      return; // Absent outside the interactive TUI; RPC ships a no-op anyway.
+    }
+
+    try {
+      // theme.fg() resets only the foreground color, so the accent wrap
+      // recolors Pi's italic thinkingText label without touching its styling.
+      ui.setHiddenThinkingLabel(
+        ui.theme ? ui.theme.fg("accent", "Thinking...") : "Thinking...",
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      ctx?.ui.notify(`Hidden thinking label formatting failed: ${message}`, "warning");
+    }
+  });
 }
