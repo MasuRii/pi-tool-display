@@ -50,6 +50,12 @@ function renderedText(component: Text): string {
 	return component.render(120).map((line) => line.trimEnd()).join("\n").trim();
 }
 
+/** Like renderedText, but renders wide enough that nothing wraps. */
+function renderedSingleLine(component: Text): string {
+	const lines = component.render(4000).map((line) => line.trimEnd());
+	return lines.join("").trim();
+}
+
 /**
  * Create a spinner context and render. Returns the component plus a cleanup
  * function that transitions to shouldSpin=false (stopping the interval timer).
@@ -107,6 +113,53 @@ test("renderBashCall uses ellipsis when command is only whitespace", () => {
 test("renderBashCall displays short command", () => {
 	const text = renderBashCall({ command: "npm test" }, createPassThroughTheme(), makeContext());
 	assert.equal(renderedText(text), "$ npm test");
+});
+
+test("renderBashCall keeps full command when maxCommandChars is unset or zero", () => {
+	const longCmd = "echo " + "a".repeat(300);
+	const full = renderedSingleLine(renderBashCall({ command: longCmd }, createPassThroughTheme(), makeContext()));
+	const zero = renderedSingleLine(
+		renderBashCall({ command: longCmd }, createPassThroughTheme(), makeContext(), 0),
+	);
+	assert.ok(full.includes(longCmd), "full command should appear");
+	assert.equal(full, zero);
+});
+
+test("renderBashCall truncates long command to maxCommandChars with ellipsis", () => {
+	const longCmd = "echo " + "a".repeat(300);
+	const text = renderBashCall(
+		{ command: longCmd },
+		createPassThroughTheme(),
+		makeContext(),
+		160,
+	);
+	const output = renderedSingleLine(text);
+	assert.ok(output.length < 200, `output should stay short, got ${output.length}`);
+	assert.ok(output.endsWith("…"), `truncated command should end with ellipsis, got: ${output}`);
+	assert.ok(output.startsWith("$ echo aaaa"), "command prefix should be preserved");
+});
+
+test("renderBashCall truncation collapses multiline commands onto one line", () => {
+	const text = renderBashCall(
+		{ command: "echo one\necho two\necho three" },
+		createPassThroughTheme(),
+		makeContext(),
+		40,
+	);
+	const output = renderedText(text);
+	assert.ok(!output.includes("\n"), `output should be single-line, got: ${JSON.stringify(output)}`);
+	assert.ok(output.includes("echo one ; echo two"), "line breaks should be collapsed with ; separator");
+});
+
+test("renderBashCall truncation keeps short multiline command intact", () => {
+	const text = renderBashCall(
+		{ command: "echo one\necho two" },
+		createPassThroughTheme(),
+		makeContext(),
+		40,
+	);
+	const output = renderedText(text);
+	assert.ok(output.includes("echo one ; echo two"), "short multiline command should still collapse to one line");
 });
 
 test("renderBashCall handles very long commands without crashing", () => {

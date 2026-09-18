@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added a `bashCommandMaxChars` config option that truncates the bash call's displayed command to a single line of at most N characters (with an ellipsis and ` ; ` line-break separators), so long commands stop wrapping across many terminal rows. `0` (default) keeps the full command.
+
 ## [0.5.0] - 2026-07-03
 
 ### Added

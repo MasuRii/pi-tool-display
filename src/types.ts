@@ -56,6 +56,7 @@ export interface ToolDisplayConfig {
 	expandedPreviewMaxLines: number;
 	bashOutputMode: BashOutputMode;
 	bashCollapsedLines: number;
+	bashCommandMaxChars: number;
 	diffViewMode: DiffViewMode;
 	diffIndicatorMode: DiffIndicatorMode;
 	diffSplitMinWidth: number;
@@ -85,6 +86,7 @@ export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 	expandedPreviewMaxLines: 4000,
 	bashOutputMode: "opencode",
 	bashCollapsedLines: 10,
+	bashCommandMaxChars: 0,
 	diffViewMode: "auto",
 	diffIndicatorMode: "bars",
 	diffSplitMinWidth: 120,

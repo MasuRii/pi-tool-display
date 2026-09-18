@@ -124,10 +124,23 @@ function isDefaultShellPath(shellPath: string): boolean {
 	return basename === "bash" || basename === "cmd.exe";
 }
 
-function buildCommandDisplay(args: BashCallArgs): string {
+function truncateCommand(command: string, maxChars: number): string {
+	if (!Number.isFinite(maxChars) || maxChars <= 0) {
+		return command;
+	}
+	// Collapse line breaks so a long multi-line command stays on one display line.
+	const singleLine = command.replace(/\s*\r?\n\s*/g, " ; ");
+	if (singleLine.length <= maxChars) {
+		return singleLine;
+	}
+	const cutoff = Math.max(1, maxChars - 1);
+	return `${singleLine.slice(0, cutoff)}…`;
+}
+
+function buildCommandDisplay(args: BashCallArgs, maxCommandChars?: number): string {
 	const command =
 		typeof args.command === "string" && args.command.trim().length > 0
-			? args.command
+			? truncateCommand(args.command, maxCommandChars ?? 0)
 			: "...";
 	const prefix =
 		typeof args.commandPrefix === "string" && args.commandPrefix.trim().length > 0
@@ -141,8 +154,9 @@ function buildBashCallText(
 	theme: BashCallRenderTheme,
 	spinnerFrame?: string,
 	elapsedMs?: number,
+	maxCommandChars?: number,
 ): string {
-	const commandDisplay = buildCommandDisplay(args);
+	const commandDisplay = buildCommandDisplay(args, maxCommandChars);
 	const shellSuffix =
 		typeof args.shellPath === "string" &&
 		args.shellPath.trim().length > 0 &&
@@ -165,6 +179,7 @@ export function renderBashCall(
 	args: BashCallArgs,
 	theme: BashCallRenderTheme,
 	context: BashCallRenderContextLike,
+	maxCommandChars?: number,
 ): Text {
 	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 	const carrier = toStateCarrier(context.state);
@@ -174,7 +189,7 @@ export function renderBashCall(
 
 	if (!shouldSpin) {
 		stopSpinner(toolCallId, spinnerState);
-		text.setText(buildBashCallText(args, theme));
+		text.setText(buildBashCallText(args, theme, undefined, undefined, maxCommandChars));
 		return text;
 	}
 
@@ -189,6 +204,7 @@ export function renderBashCall(
 						theme,
 						BASH_SPINNER_FRAMES[spinnerState.frameIndex],
 						Date.now() - (spinnerState.startedAt ?? Date.now()),
+						maxCommandChars,
 					),
 				);
 				context.invalidate?.();

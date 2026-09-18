@@ -227,6 +227,7 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 		),
 		bashOutputMode: toBashOutputMode(source.bashOutputMode),
 		bashCollapsedLines: clampNumber(source.bashCollapsedLines, 0, 80, DEFAULT_TOOL_DISPLAY_CONFIG.bashCollapsedLines),
+		bashCommandMaxChars: clampNumber(source.bashCommandMaxChars, 0, 2000, DEFAULT_TOOL_DISPLAY_CONFIG.bashCommandMaxChars),
 		diffViewMode: toDiffViewMode(source.diffViewMode),
 		diffIndicatorMode: toDiffIndicatorMode(source.diffIndicatorMode),
 		diffSplitMinWidth: clampNumber(source.diffSplitMinWidth, 70, 240, DEFAULT_TOOL_DISPLAY_CONFIG.diffSplitMinWidth),

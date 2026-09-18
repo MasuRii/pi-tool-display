@@ -152,6 +152,7 @@ A starter template is included at `config/config.example.json`.
 | `expandedPreviewMaxLines` | number | `4000` | Max preview lines when fully expanded |
 | `bashOutputMode` | string | `"opencode"` | `opencode` (collapse), `summary` (line count), or `preview` (show lines) |
 | `bashCollapsedLines` | number | `10` | Lines shown for collapsed bash output (opencode mode) |
+| `bashCommandMaxChars` | number | `0` | Truncate the bash call's displayed command to this many characters on a single line; `0` shows the full command |
 | `diffViewMode` | string | `"auto"` | `auto`, `split`, or `unified` |
 | `diffIndicatorMode` | string | `"bars"` | `bars` (vertical indicators), `classic` (+/- markers), or `none` |
 | `diffSplitMinWidth` | number | `120` | Minimum width before auto mode prefers split diffs |
@@ -263,6 +264,7 @@ Notes:
   "expandedPreviewMaxLines": 4000,
   "bashOutputMode": "opencode",
   "bashCollapsedLines": 15,
+  "bashCommandMaxChars": 160,
   "diffViewMode": "auto",
   "diffIndicatorMode": "bars",
   "diffSplitMinWidth": 120,
