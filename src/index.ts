@@ -13,6 +13,7 @@ import {
   type ToolDisplayCapabilities,
 } from "./capabilities.js";
 import { registerToolDisplayOverrides } from "./tool-overrides.js";
+import { registerCodemodeDisplay } from "./codemode-display.js";
 import { disposeAll, resetDisposed } from "./disposable.js";
 import { registerThinkingLabeling } from "./thinking-label.js";
 import registerNativeUserMessageBox from "./user-message-box-native.js";
@@ -84,6 +85,7 @@ export default function toolDisplayExtension(pi: ExtensionAPI): void {
   };
 
   registerToolDisplayOverrides(pi, getEffectiveConfig);
+  registerCodemodeDisplay(pi, getConfig);
   registerNativeUserMessageBox(pi, getConfig);
   registerThinkingLabeling(pi);
 

@@ -25,6 +25,7 @@
   "readOutputMode": "hidden",
   "searchOutputMode": "hidden",
   "mcpOutputMode": "hidden",
+  "codemodeOutputMode": "calls",
   "previewLines": 8,
   "expandedPreviewMaxLines": 4000,
   "bashOutputMode": "opencode",

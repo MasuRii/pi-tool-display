@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { ToolDisplayCapabilities } from "./capabilities.js";
-import { getToolDisplayConfigPath } from "./config-store.js";
+import { getToolDisplayConfigPath, normalizeToolDisplayConfig } from "./config-store.js";
 import {
 	detectToolDisplayPreset,
 	getToolDisplayPresetConfig,
@@ -46,6 +46,7 @@ function summarizeConfig(config: ToolDisplayConfig, capabilities: ToolDisplayCap
 		`userBox=${toOnOff(config.enableNativeUserMessageBox)}`,
 		`read=${config.readOutputMode}`,
 		`search=${config.searchOutputMode}`,
+		`codemode=${config.codemodeOutputMode}`,
 		`preview=${config.previewLines}`,
 		`expandedMax=${config.expandedPreviewMaxLines}`,
 		`bash=${config.bashOutputMode}`,
@@ -159,6 +160,28 @@ function buildInspectorSettings(
 			inspectorPath: configPath,
 			searchTerms: ["grep", "find", "ls", "matches", "count", "results"],
 		},
+		{
+			id: "codemodeOutputMode",
+			label: "Native codemode output",
+			currentValue: config.codemodeOutputMode,
+			values: ["summary", "calls", "preview"],
+			inspectorTitle: "Native codemode output",
+			inspectorSummary: [
+				"Controls the collapsed view of Pi's native codemode tool.",
+				"Expand a tool to see its full script, call trace, and output.",
+			],
+			inspectorOptions: [
+				"summary: script status and call counts only",
+				"calls: status summary and nested-call trace",
+				"preview: call trace plus output limited by Preview lines",
+			],
+			inspectorAdvanced: [
+				"Preview lines counts terminal rows after wrapping codemode output.",
+				"Selections are saved automatically.",
+			],
+			inspectorPath: configPath,
+			searchTerms: ["codemode", "script", "calls", "trace", "summary", "preview"],
+		},
 	];
 
 	if (capabilities.hasMcpTooling) {
@@ -193,7 +216,7 @@ function buildInspectorSettings(
 			values: PREVIEW_LINE_VALUES,
 			inspectorTitle: "Preview Lines",
 			inspectorSummary: [
-				"Sets how many lines appear when read, search, MCP, or bash preview modes are collapsed inline.",
+				"Sets how many output lines appear in collapsed read, search, MCP, bash, and codemode previews.",
 				"Accepted manual range: 1 to 80 lines. The quick selector cycles through a curated set for fast tuning.",
 			],
 			inspectorOptions: [
@@ -344,6 +367,8 @@ function applySetting(config: ToolDisplayConfig, id: string, value: string): Too
 				...config,
 				mcpOutputMode: value as ToolDisplayConfig["mcpOutputMode"],
 			};
+		case "codemodeOutputMode":
+			return normalizeToolDisplayConfig({ ...config, codemodeOutputMode: value });
 		case "previewLines":
 			return {
 				...config,

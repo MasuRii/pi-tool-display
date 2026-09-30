@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { KeybindingsManager, ExtensionAPI, ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { TUI } from "@earendil-works/pi-tui";
 import { registerToolDisplayCommand } from "../src/config-modal.ts";
 import {
 	DEFAULT_TOOL_DISPLAY_CONFIG,
@@ -243,23 +244,44 @@ test("'preset' alone (no name) warns about unknown preset", async () => {
 	assert.ok(notifications.length >= 1);
 });
 
-test("empty args with TUI mode opens modal via ctx.ui.custom", async () => {
+test("the settings menu changes codemode mode and show reports the selection", async () => {
 	const { api, getHandler } = createPiStub();
 	const { controller } = createControllerStub();
-	let customCalled = false;
-	const { ctx, notifications } = createCtxStub(true, async () => {
-		customCalled = true;
-	});
-
+	const { ctx, notifications } = createCtxStub(true);
+	// SAFETY: the menu uses only requestRender on its TUI host.
+	const tui = { requestRender() {} } as TUI;
+	const theme: Pick<Theme, "fg" | "bg" | "bold" | "getFgAnsi" | "getBgAnsi"> = {
+		fg: (_color: string, text: string) => text,
+		bg: (_color: string, text: string) => text,
+		bold: (text: string) => text,
+		getFgAnsi: () => "",
+		getBgAnsi: () => "",
+	};
+	const driveMenu = async (factory: Parameters<ExtensionCommandContext["ui"]["custom"]>[0]) => {
+		// SAFETY: the menu factory does not read its keybindings argument.
+		const keybindings = {} as KeybindingsManager;
+		// SAFETY: the inspector and modal call only the provided theme methods.
+		const modal = await factory(tui, theme as Theme, keybindings, () => {});
+		assert.ok(modal.handleInput);
+		for (const char of "codemode") modal.handleInput(char);
+		modal.render(120);
+		modal.handleInput(" ");
+		assert.equal(controller.getConfig().codemodeOutputMode, "preview");
+		modal.handleInput(" ");
+		assert.equal(controller.getConfig().codemodeOutputMode, "summary");
+		modal.handleInput(" ");
+		assert.equal(controller.getConfig().codemodeOutputMode, "calls");
+		modal.handleInput("\x1b");
+	};
+	// SAFETY: openSettingsModal requests custom<void>; this driver runs its factory and closes it.
+	ctx.ui.custom = driveMenu as ExtensionCommandContext["ui"]["custom"];
 	registerToolDisplayCommand(api, controller);
 	const handler = getHandler();
 	assert.ok(handler);
-
 	await handler("", ctx);
-
-	assert.ok(customCalled, "expected ctx.ui.custom() to be called");
-	// Should be no notification since we go to modal
 	assert.equal(notifications.length, 0);
+	await handler("show", ctx);
+	assert.match(notifications[0].message, /codemode=calls/);
 });
 
 test("empty args without TUI mode warns about TUI requirement", async () => {

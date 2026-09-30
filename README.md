@@ -78,6 +78,7 @@ The modal exposes the day-to-day controls most people change regularly:
 - preset profile
 - read output mode
 - grep/find/ls output mode
+- native codemode output (`summary`, `calls`, or `preview`)
 - MCP output mode (when MCP is available)
 - preview line count
 - bash collapsed line count
@@ -108,15 +109,15 @@ import { decorateToolForDisplay, decorateMcpToolForDisplay } from "pi-tool-displ
 
 ## Presets
 
-| Preset | Read Output | Search Output | MCP Output | Bash Output | Preview Lines | Bash Lines |
-|--------|-------------|---------------|------------|--------------|---------------|------------|
-| `opencode` | hidden | hidden | hidden | opencode | 8 | 10 |
-| `balanced` | summary | count | summary | summary | 8 | 10 |
-| `verbose` | preview | preview | preview | preview | 12 | 20 |
+| Preset | Read Output | Search Output | MCP Output | Bash Output | Codemode Output | Preview Lines | Bash Lines |
+|--------|-------------|---------------|------------|-------------|-----------------|---------------|------------|
+| `opencode` | hidden | hidden | hidden | opencode | calls | 8 | 10 |
+| `balanced` | summary | count | summary | summary | calls | 8 | 10 |
+| `verbose` | preview | preview | preview | preview | preview | 12 | 20 |
 
 - **`opencode`** (default): minimal inline-only display; tool results stay collapsed
 - **`balanced`**: compact summaries with line counts and match totals; bash shows line count only
-- **`verbose`**: larger previews for read/search/MCP/bash output
+- **`verbose`**: larger previews for read/search/MCP/bash/codemode output
 
 ### Bash Output Modes
 
@@ -148,6 +149,7 @@ A starter template is included at `config/config.example.json`.
 | `readOutputMode` | string | `"hidden"` | `hidden`, `summary`, or `preview` |
 | `searchOutputMode` | string | `"hidden"` | `hidden`, `count`, or `preview` |
 | `mcpOutputMode` | string | `"hidden"` | `hidden`, `summary`, or `preview` |
+| `codemodeOutputMode` | string | `"calls"` | `summary` shows status and counts, `calls` also lists nested tool calls, and `preview` adds output limited by `previewLines` |
 | `previewLines` | number | `8` | Lines shown in collapsed preview mode |
 | `expandedPreviewMaxLines` | number | `4000` | Max preview lines when fully expanded |
 | `bashOutputMode` | string | `"opencode"` | `opencode` (collapse), `summary` (line count), or `preview` (show lines) |
@@ -278,6 +280,12 @@ Notes:
 Debug logging is disabled by default. Set `debug` to `true` in the extension root `config.json` only when collecting diagnostics; missing or non-`true` values are treated as `false`. When enabled, diagnostics are appended to `debug/debug.log` under a runtime-created `debug/` directory, and no debug output is written to the terminal.
 
 ## Rendering notes
+
+### Native codemode
+
+By default, native `codemode` calls on Pi 0.99 or later show a compact title, a status summary, and a list of tools called by the script. In `/tool-display`, select **Native codemode output** and choose `summary` for status and counts, `calls` to also list nested tool calls, or `preview` to add returned output. Selections are saved automatically.
+
+**Preview lines** limits only the returned output in `preview` mode, measured in terminal rows after wrapping. All three modes include failure and cancellation counts, even if the script completes successfully. Expand with `Ctrl+O` to see the full script, list of tool calls, and output.
 
 ### Edit and write diffs
 

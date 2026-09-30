@@ -201,6 +201,10 @@ function normalizeCustomToolOverrides(rawOverrides: unknown): Record<string, Cus
 }
 
 export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
+	const { codemodeOutputMode = DEFAULT_TOOL_DISPLAY_CONFIG.codemodeOutputMode } = toRecord(raw);
+	if (codemodeOutputMode !== "summary" && codemodeOutputMode !== "calls" && codemodeOutputMode !== "preview") {
+		throw new Error('codemodeOutputMode must be "summary", "calls", or "preview"');
+	}
 	const source =
 		typeof raw === "object" && raw !== null ? (raw as LegacyToolDisplayConfigSource) : ({} as LegacyToolDisplayConfigSource);
 
@@ -218,6 +222,7 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 		readOutputMode: toReadOutputMode(source.readOutputMode),
 		searchOutputMode: toSearchOutputMode(source.searchOutputMode),
 		mcpOutputMode: toMcpOutputMode(source.mcpOutputMode),
+		codemodeOutputMode,
 		previewLines: clampNumber(source.previewLines, 1, 80, DEFAULT_TOOL_DISPLAY_CONFIG.previewLines),
 		expandedPreviewMaxLines: clampNumber(
 			source.expandedPreviewMaxLines,

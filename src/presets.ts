@@ -23,6 +23,7 @@ const TOOL_DISPLAY_PRESET_CONFIGS: Record<ToolDisplayPreset, ToolDisplayConfig> 
 		readOutputMode: "preview",
 		searchOutputMode: "preview",
 		mcpOutputMode: "preview",
+		codemodeOutputMode: "preview",
 		bashOutputMode: "preview",
 		previewLines: 12,
 		bashCollapsedLines: 20,
@@ -67,6 +68,7 @@ function configsEqual(a: ToolDisplayConfig, b: ToolDisplayConfig): boolean {
 		a.readOutputMode === b.readOutputMode &&
 		a.searchOutputMode === b.searchOutputMode &&
 		a.mcpOutputMode === b.mcpOutputMode &&
+		a.codemodeOutputMode === b.codemodeOutputMode &&
 		a.previewLines === b.previewLines &&
 		a.expandedPreviewMaxLines === b.expandedPreviewMaxLines &&
 		a.bashOutputMode === b.bashOutputMode &&
