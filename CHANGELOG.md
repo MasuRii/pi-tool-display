@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added `bashIntentMode` (`off` | `render` | `render-and-instruct`) so leading `# tool:` / `# intent:` comment lines render as the bash call header instead of the raw command, keeping long flag sets and absolute paths out of the collapsed header. The header reads `<wrench icon> <label> · <intent>`: `git --git-dir=… --work-tree=… status --short` renders as `🔧 git status · check which files are dirty`.
+- The header label is declared by the agent (`# tool: git status`) and falls back to the program alone, derived from the command — skipping wrapper programs (`sudo`, `env`, `nohup`, …) with their flags and flag values, leading `VAR=value` assignments, context-only leading segments (`cd`, `export`, `source`, …), and reducing absolute paths to a basename. Nothing is inferred: a shell command cannot distinguish a subcommand from an argument (`grep -r pattern` vs `git status`), so no curated list of programs ships with the package.
+- `render-and-instruct` appends a guideline to the system prompt so the model supplies both comments itself — no extra model call or latency, and the rendered header is always accurate because the agent authored it.
+- Added `bashIntentShowCommand` to append the stripped command after the rendered intent for provenance.
+- Expanding a call with `Ctrl+O` appends the full command beneath the intent header (line breaks preserved), since the header hides the arguments by design. The `bashIntentShowCommand` one-line suffix is omitted while expanded so the command never appears twice.
+
 ## [0.5.0] - 2026-07-03
 
 ### Added

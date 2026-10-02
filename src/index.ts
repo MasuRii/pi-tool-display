@@ -13,6 +13,7 @@ import {
   type ToolDisplayCapabilities,
 } from "./capabilities.js";
 import { registerToolDisplayOverrides } from "./tool-overrides.js";
+import { buildBashIntentSystemPrompt } from "./bash-intent.js";
 import { disposeAll, resetDisposed } from "./disposable.js";
 import { registerThinkingLabeling } from "./thinking-label.js";
 import registerNativeUserMessageBox from "./user-message-box-native.js";
@@ -103,7 +104,16 @@ export default function toolDisplayExtension(pi: ExtensionAPI): void {
     }
   });
 
-  pi.on("before_agent_start", async () => {
+  pi.on("before_agent_start", async (event) => {
     refreshCapabilities();
+
+    // Opt-in: teach the intent-comment convention so the model supplies it
+    // without the user having to ask.
+    const systemPrompt = buildBashIntentSystemPrompt(event.systemPrompt, getEffectiveConfig());
+    if (systemPrompt === undefined) {
+      return;
+    }
+
+    return { systemPrompt };
   });
 }

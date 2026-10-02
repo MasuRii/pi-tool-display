@@ -126,6 +126,85 @@ import { decorateToolForDisplay, decorateMcpToolForDisplay } from "pi-tool-displ
 | `summary` | Shows only line count (e.g., "↳ 3 lines returned") — no output displayed |
 | `preview` | Shows actual output lines using `previewLines` limit |
 
+### Bash Intent Headers
+
+Long commands (deep flag sets, absolute paths, `--git-dir`/`--work-tree` pairs) make the call header hard
+to scan. With `bashIntentMode` enabled, leading comment lines are rendered as the header instead of the raw
+command:
+
+```bash
+# tool: git status
+# intent: check which files are dirty
+git --git-dir=/srv/app/.git --work-tree=/srv/app status --short --untracked-files=all
+```
+
+renders as:
+
+```text
+🔧 git status · check which files are dirty
+```
+
+The header is composed of three parts — the wrench icon (Nerd Font or emoji, resolved the same way as
+the rest of the UI), the program label, and the intent. **Arguments are omitted entirely.**
+
+The label is chosen by the **agent**, which declares it on a second comment line — and it must name the program
+actually being run, exactly as invoked (`gh pr view`, `git status`, `docker compose`). Naming the shell or the
+tool you are calling through (`bash`) says nothing about the command and is worse than omitting the line:
+
+```bash
+# tool: git status
+# intent: check which files are dirty
+git --git-dir=/srv/app/.git --work-tree=/srv/app status --short --untracked-files=all
+```
+
+Omitting `# tool:` is fine — the header then falls back to the program alone, derived from the command. What it
+never does is *guess* a subcommand: a shell command cannot distinguish a subcommand from an argument
+(`grep -r pattern` vs `git status`), and inferring one would require a curated list of programs inside the
+package, which nobody should have to maintain. The agent already knows what it is running, so it says so.
+
+| command | `# tool:` | label |
+|---------|-----------|-------|
+| `git --git-dir=/srv/.git status --short` | `git status` | `git status` |
+| `git --git-dir=/srv/.git status --short` | *(omitted)* | `git` |
+| `sudo -u root systemctl restart app` | *(omitted)* | `systemctl` |
+| `FOO=1 /usr/bin/apt-get install -y curl` | *(omitted)* | `apt-get` |
+| `cd /srv/app && git status --short` | *(omitted)* | `git` |
+| `grep -r pattern /path` | *(omitted)* | `grep` |
+| `./scripts/deploy.sh --prod` | *(omitted)* | `deploy.sh` |
+
+The fallback skips wrapper programs (`sudo`, `doas`, `env`, `nohup`, `command`, `exec`, `time`), their flags
+*and the values those flags consume*, plus leading `VAR=value` assignments, and reduces absolute paths to a
+basename. A leading segment that only sets context (`cd`, `export`, `set`, `source`, `pushd`, …) is skipped,
+so the label names the program that does the work — and a command made *only* of those shows the icon plus
+intent, with no dangling separator. Only the first pipeline segment is inspected, so a label never describes
+something merely piped into.
+
+Both comment lines are ordinary shell comments: the renderer strips them for display and they are never
+executed. Only leading **comment** lines matching `# intent:` / `# tool:` are consumed, so executable content
+can never be mistaken for a header; a `description` argument overrides the intent text when a custom shell
+tool supplies one, while `# tool:` still applies.
+
+| Mode | Behavior |
+|------|----------|
+| `off` | Default. Headers stay the raw command; intent comments render verbatim. |
+| `render` | Render the intent comment as the header. Nothing is injected into the prompt. |
+| `render-and-instruct` | As `render`, and append a guideline to the system prompt so the model supplies the intent comment itself. |
+
+`bashIntentShowCommand` appends the stripped command after the intent
+(`🔧 git status · check which files are dirty · git status --short`) when you want provenance in the header.
+
+**Expanding a call with `Ctrl+O` shows the full command.** Because the header hides the arguments by design,
+the full command is appended as a muted line beneath the header while expanded — preserving line breaks, so a
+multi-line command is shown as written:
+
+```text
+🔧 git status · check which files are dirty
+   git --git-dir=/srv/app/.git --work-tree=/srv/app status --short --untracked-files=all
+```
+
+`bashIntentShowCommand`'s one-line suffix is omitted while expanded, so the command never appears twice.
+Output expansion is unchanged: `Ctrl+O` reveals the whole output in every `bashOutputMode`, including `summary`.
+
 ## Configuration
 
 Runtime configuration is stored at:
@@ -152,6 +231,8 @@ A starter template is included at `config/config.example.json`.
 | `expandedPreviewMaxLines` | number | `4000` | Max preview lines when fully expanded |
 | `bashOutputMode` | string | `"opencode"` | `opencode` (collapse), `summary` (line count), or `preview` (show lines) |
 | `bashCollapsedLines` | number | `10` | Lines shown for collapsed bash output (opencode mode) |
+| `bashIntentMode` | string | `"off"` | `off`, `render` (intent comment as the call header), or `render-and-instruct` (also teach the convention in the system prompt) |
+| `bashIntentShowCommand` | boolean | `false` | Append the stripped command after the rendered intent |
 | `diffViewMode` | string | `"auto"` | `auto`, `split`, or `unified` |
 | `diffIndicatorMode` | string | `"bars"` | `bars` (vertical indicators), `classic` (+/- markers), or `none` |
 | `diffSplitMinWidth` | number | `120` | Minimum width before auto mode prefers split diffs |
@@ -263,6 +344,8 @@ Notes:
   "expandedPreviewMaxLines": 4000,
   "bashOutputMode": "opencode",
   "bashCollapsedLines": 15,
+  "bashIntentMode": "render-and-instruct",
+  "bashIntentShowCommand": false,
   "diffViewMode": "auto",
   "diffIndicatorMode": "bars",
   "diffSplitMinWidth": 120,

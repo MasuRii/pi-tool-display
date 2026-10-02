@@ -4,6 +4,7 @@ export const MCP_OUTPUT_MODES = ["hidden", "summary", "preview"] as const;
 export const CUSTOM_TOOL_OVERRIDE_KINDS = ["generic", "mcp"] as const;
 export const CUSTOM_TOOL_OUTPUT_MODES = ["hidden", "summary", "preview"] as const;
 export const BASH_OUTPUT_MODES = ["opencode", "summary", "preview"] as const;
+export const BASH_INTENT_MODES = ["off", "render", "render-and-instruct"] as const;
 export const DIFF_VIEW_MODES = ["auto", "split", "unified"] as const;
 export const DIFF_INDICATOR_MODES = ["bars", "classic", "none"] as const;
 
@@ -13,6 +14,7 @@ export type McpOutputMode = (typeof MCP_OUTPUT_MODES)[number];
 export type CustomToolOverrideKind = (typeof CUSTOM_TOOL_OVERRIDE_KINDS)[number];
 export type CustomToolOutputMode = (typeof CUSTOM_TOOL_OUTPUT_MODES)[number];
 export type BashOutputMode = (typeof BASH_OUTPUT_MODES)[number];
+export type BashIntentMode = (typeof BASH_INTENT_MODES)[number];
 export type DiffViewMode = (typeof DIFF_VIEW_MODES)[number];
 export type DiffIndicatorMode = (typeof DIFF_INDICATOR_MODES)[number];
 
@@ -56,6 +58,8 @@ export interface ToolDisplayConfig {
 	expandedPreviewMaxLines: number;
 	bashOutputMode: BashOutputMode;
 	bashCollapsedLines: number;
+	bashIntentMode: BashIntentMode;
+	bashIntentShowCommand: boolean;
 	diffViewMode: DiffViewMode;
 	diffIndicatorMode: DiffIndicatorMode;
 	diffSplitMinWidth: number;
@@ -85,6 +89,8 @@ export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 	expandedPreviewMaxLines: 4000,
 	bashOutputMode: "opencode",
 	bashCollapsedLines: 10,
+	bashIntentMode: "off",
+	bashIntentShowCommand: false,
 	diffViewMode: "auto",
 	diffIndicatorMode: "bars",
 	diffSplitMinWidth: 120,

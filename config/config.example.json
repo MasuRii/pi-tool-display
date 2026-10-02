@@ -29,6 +29,8 @@
   "expandedPreviewMaxLines": 4000,
   "bashOutputMode": "opencode",
   "bashCollapsedLines": 10,
+  "bashIntentMode": "off",
+  "bashIntentShowCommand": false,
   "diffViewMode": "auto",
   "diffIndicatorMode": "bars",
   "diffSplitMinWidth": 120,

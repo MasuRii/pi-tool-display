@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, 
 import { dirname, join } from "node:path";
 import {
 	BUILT_IN_TOOL_OVERRIDE_NAMES,
+	BASH_INTENT_MODES,
 	BASH_OUTPUT_MODES,
 	CUSTOM_TOOL_OUTPUT_MODES,
 	CUSTOM_TOOL_OVERRIDE_KINDS,
@@ -63,6 +64,12 @@ function toBashOutputMode(value: unknown): ToolDisplayConfig["bashOutputMode"] {
 	return BASH_OUTPUT_MODES.includes(value as ToolDisplayConfig["bashOutputMode"])
 		? (value as ToolDisplayConfig["bashOutputMode"])
 		: DEFAULT_TOOL_DISPLAY_CONFIG.bashOutputMode;
+}
+
+function toBashIntentMode(value: unknown): ToolDisplayConfig["bashIntentMode"] {
+	return BASH_INTENT_MODES.includes(value as ToolDisplayConfig["bashIntentMode"])
+		? (value as ToolDisplayConfig["bashIntentMode"])
+		: DEFAULT_TOOL_DISPLAY_CONFIG.bashIntentMode;
 }
 
 function toDiffViewMode(value: unknown): ToolDisplayConfig["diffViewMode"] {
@@ -227,6 +234,11 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 		),
 		bashOutputMode: toBashOutputMode(source.bashOutputMode),
 		bashCollapsedLines: clampNumber(source.bashCollapsedLines, 0, 80, DEFAULT_TOOL_DISPLAY_CONFIG.bashCollapsedLines),
+		bashIntentMode: toBashIntentMode(source.bashIntentMode),
+		bashIntentShowCommand: toBoolean(
+			source.bashIntentShowCommand,
+			DEFAULT_TOOL_DISPLAY_CONFIG.bashIntentShowCommand,
+		),
 		diffViewMode: toDiffViewMode(source.diffViewMode),
 		diffIndicatorMode: toDiffIndicatorMode(source.diffIndicatorMode),
 		diffSplitMinWidth: clampNumber(source.diffSplitMinWidth, 70, 240, DEFAULT_TOOL_DISPLAY_CONFIG.diffSplitMinWidth),

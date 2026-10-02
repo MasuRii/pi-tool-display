@@ -85,3 +85,50 @@ test("config save writes normalized JSON and cleans temporary file on failure", 
     assert.equal(existsSync(`${blockedConfigFile}.tmp`), false);
   });
 });
+
+test("bash intent defaults are inert and backwards compatible", () => {
+  const config = normalizeToolDisplayConfig({});
+  assert.equal(config.bashIntentMode, "off");
+  assert.equal(config.bashIntentShowCommand, false);
+  assert.equal(config.bashIntentMode, DEFAULT_TOOL_DISPLAY_CONFIG.bashIntentMode);
+});
+
+test("bash intent accepts the supported modes and rejects anything else", () => {
+  assert.equal(normalizeToolDisplayConfig({ bashIntentMode: "render" }).bashIntentMode, "render");
+  assert.equal(
+    normalizeToolDisplayConfig({ bashIntentMode: "render-and-instruct" }).bashIntentMode,
+    "render-and-instruct",
+  );
+  assert.equal(
+    normalizeToolDisplayConfig({ bashIntentMode: "compact" }).bashIntentMode,
+    DEFAULT_TOOL_DISPLAY_CONFIG.bashIntentMode,
+  );
+  assert.equal(
+    normalizeToolDisplayConfig({ bashIntentMode: 42 }).bashIntentMode,
+    DEFAULT_TOOL_DISPLAY_CONFIG.bashIntentMode,
+  );
+});
+
+test("bash intent showCommand coerces only real booleans", () => {
+  assert.equal(normalizeToolDisplayConfig({ bashIntentShowCommand: true }).bashIntentShowCommand, true);
+  assert.equal(normalizeToolDisplayConfig({ bashIntentShowCommand: false }).bashIntentShowCommand, false);
+  assert.equal(
+    normalizeToolDisplayConfig({ bashIntentShowCommand: "yes" as never }).bashIntentShowCommand,
+    DEFAULT_TOOL_DISPLAY_CONFIG.bashIntentShowCommand,
+  );
+});
+
+test("bash intent keys survive a save/load round trip", () => {
+  withTempDir("pi-tool-display-intent-", (dir) => {
+    const configFile = join(dir, "config.json");
+    const saved = saveToolDisplayConfig(
+      { ...DEFAULT_TOOL_DISPLAY_CONFIG, bashIntentMode: "render-and-instruct", bashIntentShowCommand: true },
+      configFile,
+    );
+    assert.equal(saved.success, true);
+
+    const loaded = loadToolDisplayConfig(configFile);
+    assert.equal(loaded.config.bashIntentMode, "render-and-instruct");
+    assert.equal(loaded.config.bashIntentShowCommand, true);
+  });
+});

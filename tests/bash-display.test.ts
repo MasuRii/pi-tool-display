@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Text } from "@earendil-works/pi-tui";
 import { renderBashCall } from "../src/bash-display.ts";
+import { getModalIcons } from "../src/modal-icons.ts";
 
 // ─── Test Helpers ────────────────────────────────────────────────────────────
 
@@ -15,6 +16,7 @@ interface BashCallRenderTheme {
 interface BashCallRenderContextLike {
 	executionStarted: boolean;
 	isPartial: boolean;
+	expanded?: boolean;
 	invalidate(): void;
 	lastComponent?: unknown;
 	state?: unknown;
@@ -439,4 +441,253 @@ test("renderBashCall handles numeric timeout with decimal value", () => {
 		makeContext(),
 	);
 	assert.equal(renderedText(text), "$ sleep 1 (timeout 2.5s)");
+});
+
+// ─── Intent headers (bashIntentMode) ─────────────────────────────────────────
+
+// The wrench glyph is Nerd-Font or emoji depending on the terminal, so the
+// expected header is built from the same resolver the renderer uses.
+const TOOL_ICON = getModalIcons().tool;
+
+const DOTTED = { intentMode: "render" } as const;
+
+test("renderBashCall renders the agent's tool label with the intent", () => {
+	const text = renderBashCall(
+		{
+			command:
+				"# tool: git status\n# intent: check which files are dirty\ngit --git-dir=/tmp/x --work-tree=/tmp/x status --short",
+		},
+		createPassThroughTheme(),
+		makeContext(),
+		DOTTED,
+	);
+	assert.equal(renderedText(text), `${TOOL_ICON} git status · check which files are dirty`);
+});
+
+test("renderBashCall falls back to the program when no tool label is given", () => {
+	const text = renderBashCall(
+		{ command: "# intent: check which files are dirty\ngit --git-dir=/tmp/x status --short" },
+		createPassThroughTheme(),
+		makeContext(),
+		DOTTED,
+	);
+	assert.equal(renderedText(text), `${TOOL_ICON} git · check which files are dirty`);
+});
+
+test("renderBashCall accepts the tool label before or after the intent", () => {
+	for (const command of [
+		"# tool: docker compose\n# intent: bring the stack up\ndocker compose up -d",
+		"# intent: bring the stack up\n# tool: docker compose\ndocker compose up -d",
+	]) {
+		const text = renderBashCall({ command }, createPassThroughTheme(), makeContext(), DOTTED);
+		assert.equal(renderedText(text), `${TOOL_ICON} docker compose · bring the stack up`);
+	}
+});
+
+test("renderBashCall hides arguments and keeps the program label", () => {
+	const text = renderBashCall(
+		{ command: "# intent: show a message\necho \"a very long message\"" },
+		createPassThroughTheme(),
+		makeContext(),
+		DOTTED,
+	);
+	assert.equal(renderedText(text), `${TOOL_ICON} echo · show a message`);
+});
+
+test("renderBashCall leaves the raw command intact when no intent comment is present", () => {
+	const text = renderBashCall(
+		{ command: "# tool: git status\ngit status --short" },
+		createPassThroughTheme(),
+		makeContext(),
+		DOTTED,
+	);
+	assert.equal(renderedText(text), "$ # tool: git status\ngit status --short");
+});
+
+test("renderBashCall leaves the command untouched when intentMode is off", () => {
+	const text = renderBashCall(
+		{ command: "# tool: git status\n# intent: check which files are dirty\ngit status" },
+		createPassThroughTheme(),
+		makeContext(),
+		{ intentMode: "off" },
+	);
+	assert.ok(renderedText(text).includes("# intent:"));
+});
+
+test("renderBashCall omits intentOptions entirely for backwards compatibility", () => {
+	const text = renderBashCall(
+		{ command: "# intent: check which files are dirty\ngit status" },
+		createPassThroughTheme(),
+		makeContext(),
+	);
+	assert.ok(renderedText(text).includes("# intent:"));
+});
+
+test("renderBashCall appends the stripped command when showCommand is set", () => {
+	const text = renderBashCall(
+		{ command: "# tool: git status\n# intent: check which files are dirty\ngit status --short" },
+		createPassThroughTheme(),
+		makeContext(),
+		{ intentMode: "render", showCommand: true },
+	);
+	assert.equal(
+		renderedText(text),
+		`${TOOL_ICON} git status · check which files are dirty · git status --short`,
+	);
+});
+
+test("renderBashCall prefers an explicit description argument over the comment", () => {
+	const text = renderBashCall(
+		{
+			command: "# tool: git status\n# intent: from the comment\ngit status",
+			description: "from the description",
+		},
+		createPassThroughTheme(),
+		makeContext(),
+		DOTTED,
+	);
+	assert.equal(renderedText(text), `${TOOL_ICON} git status · from the description`);
+});
+
+test("renderBashCall only consumes intent:/tool: comments, not other comments", () => {
+	const text = renderBashCall(
+		{ command: "# note: a plain comment\ngit status" },
+		createPassThroughTheme(),
+		makeContext(),
+		DOTTED,
+	);
+	assert.ok(renderedText(text).includes("# note:"));
+});
+
+test("renderBashCall tolerates blank lines and spacing before the intent line", () => {
+	const text = renderBashCall(
+		{ command: "\n   #   INTENT :   check dirty files  \ngit status" },
+		createPassThroughTheme(),
+		makeContext(),
+		DOTTED,
+	);
+	assert.equal(renderedText(text), `${TOOL_ICON} git · check dirty files`);
+});
+
+test("renderBashCall joins multiple intent lines", () => {
+	const text = renderBashCall(
+		{ command: "# intent: check dirty files\n# intent: and list them\ngit status" },
+		createPassThroughTheme(),
+		makeContext(),
+		DOTTED,
+	);
+	assert.equal(renderedText(text), `${TOOL_ICON} git · check dirty files and list them`);
+});
+
+test("renderBashCall keeps the timeout suffix when rendering an intent header", () => {
+	const text = renderBashCall(
+		{ command: "# intent: wait for a slow job\nsleep 30", timeout: 60 },
+		createPassThroughTheme(),
+		makeContext(),
+		DOTTED,
+	);
+	assert.equal(renderedText(text), `${TOOL_ICON} sleep · wait for a slow job (timeout 60s)`);
+});
+
+test("renderBashCall uses the program basename for an absolute program path", () => {
+	const text = renderBashCall(
+		{ command: "# intent: install the dependency\nsudo FOO=1 /usr/bin/apt-get install -y curl" },
+		createPassThroughTheme(),
+		makeContext(),
+		DOTTED,
+	);
+	assert.equal(renderedText(text), `${TOOL_ICON} apt-get · install the dependency`);
+});
+
+test("renderBashCall labels a cd-prefixed command with the real program", () => {
+	const text = renderBashCall(
+		{ command: "# intent: check which files are dirty\ncd /srv/app && git status --short" },
+		createPassThroughTheme(),
+		makeContext(),
+		DOTTED,
+	);
+	assert.equal(renderedText(text), `${TOOL_ICON} git · check which files are dirty`);
+});
+
+test("renderBashCall drops the separator when there is no program or label", () => {
+	const text = renderBashCall(
+		{ command: "# intent: hop between directories\ncd /a && cd /b" },
+		createPassThroughTheme(),
+		makeContext(),
+		DOTTED,
+	);
+	assert.equal(renderedText(text), `${TOOL_ICON} hop between directories`);
+});
+
+test("renderBashCall appends the full command when the call is expanded", () => {
+	const text = renderBashCall(
+		{
+			command:
+				"# tool: git status\n# intent: check which files are dirty\ngit --git-dir=/srv/app/.git --work-tree=/srv/app status --short",
+		},
+		createPassThroughTheme(),
+		makeContext({ expanded: true }),
+		DOTTED,
+	);
+	const lines = renderedText(text).split("\n");
+	assert.equal(lines[0], `${TOOL_ICON} git status · check which files are dirty`);
+	assert.equal(lines[1], "git --git-dir=/srv/app/.git --work-tree=/srv/app status --short");
+});
+
+test("renderBashCall keeps the header one line when collapsed", () => {
+	const text = renderBashCall(
+		{ command: "# intent: check which files are dirty\ngit --git-dir=/srv/app/.git status --short" },
+		createPassThroughTheme(),
+		makeContext(),
+		DOTTED,
+	);
+	assert.equal(renderedText(text).includes("\n"), false);
+});
+
+test("renderBashCall shows the multi-line command in full when expanded", () => {
+	const text = renderBashCall(
+		{ command: "# intent: run the release steps\ngit fetch --all\ngit rebase origin/main" },
+		createPassThroughTheme(),
+		makeContext({ expanded: true }),
+		DOTTED,
+	);
+	const lines = renderedText(text).split("\n");
+	assert.equal(lines[0], `${TOOL_ICON} git · run the release steps`);
+	assert.equal(lines[1], "git fetch --all");
+	assert.equal(lines[2], "git rebase origin/main");
+});
+
+test("renderBashCall does not repeat the command when expanded with showCommand", () => {
+	const text = renderBashCall(
+		{ command: "# intent: check which files are dirty\ngit status --short" },
+		createPassThroughTheme(),
+		makeContext({ expanded: true }),
+		{ intentMode: "render", showCommand: true },
+	);
+	const lines = renderedText(text).split("\n");
+	assert.equal(lines[0], `${TOOL_ICON} git · check which files are dirty`);
+	assert.equal(lines[1], "git status --short");
+	assert.equal(lines.length, 2);
+});
+
+test("renderBashCall keeps suffixes on the header line when expanded", () => {
+	const text = renderBashCall(
+		{ command: "# intent: wait for a slow job\nsleep 30", timeout: 60 },
+		createPassThroughTheme(),
+		makeContext({ expanded: true }),
+		DOTTED,
+	);
+	const lines = renderedText(text).split("\n");
+	assert.equal(lines[0], `${TOOL_ICON} sleep · wait for a slow job (timeout 60s)`);
+	assert.equal(lines[1], "sleep 30");
+});
+
+test("renderBashCall ignores expansion when there is no intent header", () => {
+	const text = renderBashCall(
+		{ command: "git status --short" },
+		createPassThroughTheme(),
+		makeContext({ expanded: true }),
+		DOTTED,
+	);
+	assert.equal(renderedText(text), "$ git status --short");
 });

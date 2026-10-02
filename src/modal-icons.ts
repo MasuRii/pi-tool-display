@@ -1,13 +1,16 @@
 export interface ModalIconSet {
 	search: string;
+	tool: string;
 }
 
 const NERD_MODAL_ICONS: ModalIconSet = {
 	search: "\uF002",
+	tool: "\uF0AD",
 };
 
 const EMOJI_MODAL_ICONS: ModalIconSet = {
 	search: "🔍",
+	tool: "🔧",
 };
 
 const NERD_FONT_TERMINAL_HINTS = [
