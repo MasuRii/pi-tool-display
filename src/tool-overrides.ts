@@ -308,6 +308,25 @@ function loadBashToolOverrideOptions(): BashToolOverrideOptions {
   }
 }
 
+type BuiltInExecuteWithContext = (
+  toolCallId: string,
+  params: unknown,
+  signal: unknown,
+  onUpdate: unknown,
+  ctx: unknown,
+) => Promise<unknown>;
+
+export function executeBuiltInTool(
+  tool: { execute: unknown },
+  toolCallId: string,
+  params: unknown,
+  signal: unknown,
+  onUpdate: unknown,
+  ctx: unknown,
+): Promise<unknown> {
+  return (tool.execute as BuiltInExecuteWithContext)(toolCallId, params, signal, onUpdate, ctx);
+}
+
 function getBuiltInTools(cwd: string): BuiltInTools {
   let tools = builtInToolCache.get(cwd);
   if (!tools) {
@@ -1639,12 +1658,14 @@ export function registerToolDisplayOverrides(
       parameters: clonedParameters[toolName],
       prepareArguments: getToolPrepareArguments(bootstrapTools[toolName]),
       async execute(toolCallId: string, params: Record<string, unknown>, signal: unknown, onUpdate: unknown, ctx: { cwd: string }) {
-        return getBuiltInTools(ctx.cwd)[toolName].execute(
+        return executeBuiltInTool(
+          getBuiltInTools(ctx.cwd)[toolName],
           toolCallId,
-          params as never,
-          signal as never,
-          onUpdate as never,
-        );
+          params,
+          signal,
+          onUpdate,
+          ctx,
+        ) as never;
       },
     };
   }
@@ -1736,12 +1757,7 @@ export function registerToolDisplayOverrides(
     renderShell: "default",
     prepareArguments: getToolPrepareArguments(bootstrapTools.edit),
     async execute(toolCallId, params, signal, onUpdate, ctx) {
-      return getBuiltInTools(ctx.cwd).edit.execute(
-        toolCallId,
-        params as never,
-        signal,
-        onUpdate as never,
-      );
+      return executeBuiltInTool(getBuiltInTools(ctx.cwd).edit, toolCallId, params, signal, onUpdate, ctx) as never;
     },
     renderCall(args, theme, context) {
       return renderEditDisplayCall(args, theme, context, {}, getConfig);
@@ -1767,12 +1783,7 @@ export function registerToolDisplayOverrides(
         previousContent: previous.content,
       });
 
-      return getBuiltInTools(ctx.cwd).write.execute(
-        toolCallId,
-        params as never,
-        signal,
-        onUpdate as never,
-      );
+      return executeBuiltInTool(getBuiltInTools(ctx.cwd).write, toolCallId, params, signal, onUpdate, ctx) as never;
     },
     renderCall(args, theme, context) {
       const content = getToolContentArg(args);

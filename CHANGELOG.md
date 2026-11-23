@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Forwarded the extension context as the fifth `execute` argument from the built-in tool overrides so bash commands receive `PI_SESSION_ID`, `PI_SESSION_FILE`, `PI_PROVIDER`, `PI_MODEL`, and `PI_REASONING_LEVEL` (#52).
+
 ## [0.5.0] - 2026-07-03
 
 ### Added
