@@ -10,9 +10,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Bounded collapsed and expanded tool output previews by wrapped terminal rows instead of only newline-delimited lines, so a single very long line can no longer flood the TUI; omitted rows are reported with a visible hint (#36).
 
-### Fixed
-- Applied `customToolOverrides` and MCP decoration to a copy of the tool before it is passed to `registerTool()`, so hosts that snapshot the registered definition render the override instead of the tool's original renderers (#44).
-
 ## [0.5.0] - 2026-07-03
 
 ### Added
