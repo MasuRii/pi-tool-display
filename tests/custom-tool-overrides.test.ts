@@ -395,7 +395,7 @@ test("custom tool registered after lifecycle is decorated when it is explicitly 
 	const config = buildConfigWithCustomOverrides({
 		late_custom_tool: { enabled: true, outputMode: "summary" },
 	});
-	const { api, eventHandlers } = createExtensionApiStub([]);
+	const { api, registeredTools, eventHandlers } = createExtensionApiStub([]);
 
 	registerToolDisplayOverrides(api, () => config);
 	await runLifecycle(eventHandlers);
@@ -408,7 +408,44 @@ test("custom tool registered after lifecycle is decorated when it is explicitly 
 	};
 	(api as unknown as { registerTool(tool: RuntimeTool): void }).registerTool(lateTool);
 
-	assert.equal(typeof lateTool.renderCall, "function");
-	assert.equal(typeof lateTool.renderResult, "function");
-	assert.equal(renderToText(lateTool.renderCall?.({ query: "late" }, createTheme())), "late_custom_tool (1 arg)");
+	const registered = registeredTools.find((tool) => tool.name === "late_custom_tool");
+	assert.ok(registered);
+	assert.equal(typeof registered.renderCall, "function");
+	assert.equal(typeof registered.renderResult, "function");
+	assert.equal(renderToText(registered.renderCall?.({ query: "late" }, createTheme())), "late_custom_tool (1 arg)");
+});
+
+test("custom tool overrides are applied before the tool is handed to registerTool", async () => {
+	const config = buildConfigWithCustomOverrides({
+		snapshot_tool: { enabled: true, outputMode: "summary" },
+	});
+	const { api, eventHandlers } = createExtensionApiStub([]);
+	const snapshotName = "snapshot_tool";
+	const snapshots: Array<{ renderCall: unknown; renderResult: unknown }> = [];
+	const originalRegister = api.registerTool.bind(api);
+	api.registerTool = ((tool: RuntimeTool) => {
+		if (tool.name === snapshotName) {
+			snapshots.push({ renderCall: tool.renderCall, renderResult: tool.renderResult });
+		}
+		originalRegister(tool as never);
+	}) as unknown as typeof api.registerTool;
+
+	registerToolDisplayOverrides(api, () => config);
+	await runLifecycle(eventHandlers);
+
+	const ownRenderCall = () => ({ render: () => [] });
+	const snapshotTool: RuntimeTool = {
+		name: snapshotName,
+		description: "Tool with its own renderers.",
+		parameters: {},
+		execute: () => {},
+		renderCall: ownRenderCall,
+		renderResult: ownRenderCall,
+	};
+	(api as unknown as { registerTool(tool: RuntimeTool): void }).registerTool(snapshotTool);
+
+	assert.equal(snapshots.length, 1);
+	assert.notEqual(snapshots[0].renderCall, ownRenderCall);
+	assert.equal(typeof snapshots[0].renderResult, "function");
+	assert.equal(snapshotTool.renderCall, ownRenderCall);
 });
