@@ -492,6 +492,63 @@ test("bash output modes stay distinct across opencode, summary, and preview", as
 	);
 });
 
+function renderToolResultRows(
+	tool: RegisteredToolLike | undefined,
+	text: string,
+	width: number,
+	expanded = false,
+): string[] {
+	assert.ok(tool?.renderResult, `expected renderResult for tool '${tool?.name ?? "unknown"}'`);
+	return tool
+		.renderResult(
+			{ content: [{ type: "text", text }], details: {}, isError: false },
+			{ isPartial: false, expanded },
+			createTheme(),
+		)
+		.render(width)
+		.map((line) => line.trimEnd());
+}
+
+test("collapsed bash preview bounds a single long line by wrapped rows", async () => {
+	const config = buildConfig({ bashOutputMode: "opencode", bashCollapsedLines: 3 });
+	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
+	registerToolDisplayOverrides(api, () => config);
+	await eventHandlers.before_agent_start?.();
+
+	const bashTool = registeredTools.find((tool) => tool.name === "bash");
+	const rows = renderToolResultRows(bashTool, "x".repeat(10_000), 60);
+	assert.equal(rows.length, 4);
+	assert.equal(rows[0], "x".repeat(60));
+	assert.match(rows[3] ?? "", /^\.\.\. \(\d+ more wrapped rows • Ctrl\+O to expand\)$/);
+});
+
+test("expanded preview cap applies to wrapped rows without altering short output", async () => {
+	const config = buildConfig({ bashOutputMode: "preview", expandedPreviewMaxLines: 5 });
+	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
+	registerToolDisplayOverrides(api, () => config);
+	await eventHandlers.before_agent_start?.();
+
+	const bashTool = registeredTools.find((tool) => tool.name === "bash");
+	const rows = renderToolResultRows(bashTool, "y".repeat(10_000), 60, true);
+	assert.equal(rows.length, 6);
+	assert.match(rows[5] ?? "", /^\.\.\. \(\d+ more wrapped rows\)$/);
+
+	assert.deepEqual(renderToolResultRows(bashTool, "short\nlines", 40, true), ["short", "lines"]);
+});
+
+test("wrapped row limit handles CJK, emoji and ANSI styling", async () => {
+	const config = buildConfig({ searchOutputMode: "preview", previewLines: 2 });
+	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
+	registerToolDisplayOverrides(api, () => config);
+	await eventHandlers.before_agent_start?.();
+
+	const grepTool = registeredTools.find((tool) => tool.name === "grep");
+	const styled = `\x1b[31m${"漢字🙂".repeat(500)}\x1b[0m`;
+	const rows = renderToolResultRows(grepTool, styled, 60);
+	assert.equal(rows.length, 3);
+	assert.match(rows[2] ?? "", /more wrapped rows/);
+});
+
 test("bash call spinner appears only while execution is active", async () => {
 	const config = buildConfig({
 		bashOutputMode: "summary",
