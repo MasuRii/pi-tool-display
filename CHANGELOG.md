@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Applied `customToolOverrides` and MCP decoration to a copy of the tool before it is passed to `registerTool()`, so hosts that snapshot the registered definition render the override instead of the tool's original renderers (#44).
+
 ## [0.5.0] - 2026-07-03
 
 ### Added
