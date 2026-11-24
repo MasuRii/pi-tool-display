@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-24
+
+### Changed
+- Widened Pi coding-agent and Pi TUI peer dependency ranges to include `^1.6.0` so the extension resolves against Pi 1.6. ([67d9070](https://github.com/MasuRii/pi-tool-display/commit/67d90709eb4183c3045bfffd719a853112c78e32))
+
+### Fixed
+- Made built-in tool registration tests hermetic by pointing `PI_CODING_AGENT_DIR` at a fresh temporary directory, so ambient host config no longer changes default override assertions. ([d32aa2e](https://github.com/MasuRii/pi-tool-display/commit/d32aa2ee0a4315425cebff8d3906a165fd8a617d))
+- Restored the resolved tool display config in the reload behavior test so reload assertions no longer depend on prior test state. ([d9f294f](https://github.com/MasuRii/pi-tool-display/commit/d9f294f91fa37ff23bb1d46228b7d9b1f9c28da7))
+
 ## [0.5.0] - 2026-07-03
 
 ### Added
