@@ -63,3 +63,12 @@ test("PR #24: lockfile uses patched esbuild 0.28.1", () => {
 	};
 	assert.equal(lockfile.packages?.["node_modules/esbuild"]?.version, "0.28.1");
 });
+
+test("Pi 1.6: package peers include the current Pi release", () => {
+	const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+		peerDependencies?: Record<string, string>;
+	};
+	for (const dependency of ["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui"]) {
+		assert.match(manifest.peerDependencies?.[dependency] ?? "", /\^1\.6\.0/);
+	}
+});

@@ -1,5 +1,6 @@
+import "./test-agent-dir.ts";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import test from "node:test";
 import {
   UserMessageComponent,
@@ -12,7 +13,11 @@ import { renderBashCall } from "../src/bash-display.ts";
 import { registerThinkingLabeling } from "../src/thinking-label.ts";
 import registerNativeUserMessageBox from "../src/user-message-box-native.ts";
 import { createToolDisplayDebugLogger } from "../src/debug-logger.ts";
-import { loadToolDisplayConfig, saveToolDisplayConfig } from "../src/config-store.ts";
+import {
+  getToolDisplayConfigPath,
+  loadToolDisplayConfig,
+  saveToolDisplayConfig,
+} from "../src/config-store.ts";
 import { DEFAULT_TOOL_DISPLAY_CONFIG, type ToolDisplayConfig } from "../src/types.ts";
 import type { PatchableUserMessagePrototype } from "../src/user-message-box-patch.ts";
 
@@ -977,8 +982,10 @@ test("11: each tool override call clones parameters independently", () => {
 // ---------------------------------------------------------------------------
 
 test("12: config-store reloads config on fingerprint change between calls", () => {
-  const configUrl = new URL("../config.json", import.meta.url);
-  const originalConfigJson = readFileSync(configUrl, "utf8");
+  const configPath = getToolDisplayConfigPath();
+  const originalConfigJson = existsSync(configPath)
+    ? readFileSync(configPath, "utf8")
+    : undefined;
 
   try {
     const initialResult = loadToolDisplayConfig();
@@ -1008,7 +1015,13 @@ test("12: config-store reloads config on fingerprint change between calls", () =
       "re-loaded search output mode matches saved config",
     );
   } finally {
-    writeFileSync(configUrl, originalConfigJson, "utf8");
+    if (originalConfigJson === undefined) {
+      if (existsSync(configPath)) {
+        unlinkSync(configPath);
+      }
+    } else {
+      writeFileSync(configPath, originalConfigJson, "utf8");
+    }
   }
 });
 
